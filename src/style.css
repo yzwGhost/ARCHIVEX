@@ -34,3 +34,14 @@ button { font: inherit; }
 .archive-empty { position: absolute; top: 48%; width: 100%; text-align: center; font-size: 22px; font-weight: 300; letter-spacing: .08em; }
 .archive-empty p { font-size: 12px; margin-top: 24px; color: #959688; }
 @keyframes archive-wave { 0%, 100% { transform: translateY(0) rotateX(16deg) rotateY(-51deg) rotateZ(-10deg); } 50% { transform: translateY(-12px) rotateX(16deg) rotateY(-51deg) rotateZ(-10deg); } }
+.archive-scene { transition: filter .45s ease, opacity .45s ease; }
+.archive-scene.is-reading { filter: blur(12px); opacity: .18; }
+.archive-reader { position: fixed; z-index: 10; inset: 5vh 7vw; display: flex; flex-direction: column; background: #fffdf7; border: 1px solid #ddd9c9; box-shadow: 0 24px 100px #77745c22; animation: reader-reveal .45s ease both; }
+.reader-header { display: flex; align-items: center; gap: 24px; padding: 20px 26px; border-bottom: 1px solid #e7e2d5; }
+.reader-header h2 { flex: 1; min-width: 0; margin: 0; font-size: 18px; font-weight: 400; overflow-wrap: anywhere; }
+.reader-close, .archive-empty button { padding: 10px 16px; background: #f1f0e5; border: 1px solid #b8beab; color: #52665d; cursor: pointer; }
+.reader-header a { color: #526e61; font-size: 12px; }
+.reader-close:focus-visible, .reader-header a:focus-visible { outline: 2px solid #638d82; outline-offset: 4px; }
+.reader-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: white; }
+.reader-message { margin: auto; padding: 50px; line-height: 2; }
+@keyframes reader-reveal { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }

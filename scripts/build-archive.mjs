@@ -5,12 +5,38 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import MarkdownIt from 'markdown-it';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
+import { Parser } from 'htmlparser2';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const markdown = new MarkdownIt({ html: false });
 const supported = new Set(['md', 'docx', 'pdf', 'doc']);
 const urlPath = relative => relative.split('/').map(encodeURIComponent).join('/');
-const plainText = html => sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).replace(/\s+/g, ' ').trim();
+const blockTags = new Set(['p', 'div', 'section', 'article', 'header', 'footer', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th', 'br', 'hr']);
+function plainText(html) {
+  let text = '';
+  const separateBlock = tag => { if (blockTags.has(tag)) text += ' '; };
+  const parser = new Parser({
+    onopentag: separateBlock,
+    onclosetag: separateBlock,
+    ontext: value => { text += value; },
+  }, { decodeEntities: true });
+  parser.end(html);
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+async function rejectLinkedAncestors(target) {
+  // lstat each existing ancestor: checking only the leaf misses junction redirects.
+  for (let current = target; ; current = path.dirname(current)) {
+    try {
+      if ((await lstat(current)).isSymbolicLink()) {
+        throw new Error(`Archive output cannot contain a symbolic link or junction: ${current}`);
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (current === path.dirname(current)) break;
+  }
+}
 
 async function scan(directory, prefix = '') {
   const files = [];
@@ -34,11 +60,7 @@ export async function buildArchive({ documentsDir, outputDir }) {
   }
   const outputRelative = path.relative(input, output);
   if (!outputRelative.startsWith('..' + path.sep) && outputRelative !== '..' && !path.isAbsolute(outputRelative)) throw new Error('Archive output cannot be inside documents.');
-  try {
-    if ((await lstat(output)).isSymbolicLink()) throw new Error('Archive output cannot be a symbolic link.');
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-  }
+  await rejectLinkedAncestors(output);
   await rm(output, { recursive: true, force: true });
   await mkdir(path.join(output, 'files'), { recursive: true });
   await mkdir(path.join(output, 'previews'), { recursive: true });

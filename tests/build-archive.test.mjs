@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Document, Packer, Paragraph } from 'docx';
@@ -92,4 +92,28 @@ test('empty folder writes empty manifest and removes stale generated output', as
   assert.deepEqual((await f.build()).entries, []);
   assert.deepEqual(JSON.parse(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8')).entries, []);
   await assert.rejects(readFile(path.join(f.outputDir, 'files/old.md')));
+});
+
+test('cleanup rejects junction ancestors and preserves external archive contents', async t => {
+  const f = await fixture(t);
+  const root = path.dirname(f.documentsDir);
+  const external = path.join(root, 'external');
+  const linkedPublic = path.join(root, 'public');
+  await mkdir(path.join(external, 'archive'), { recursive: true });
+  await writeFile(path.join(external, 'archive', 'sentinel.txt'), 'Keep this external content');
+  await symlink(external, linkedPublic, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    const { buildArchive } = await import('../scripts/build-archive.mjs');
+    await assert.rejects(buildArchive({ documentsDir: f.documentsDir, outputDir: path.join(linkedPublic, 'archive') }), /symbolic link|junction/i);
+    assert.equal(await readFile(path.join(external, 'archive', 'sentinel.txt'), 'utf8'), 'Keep this external content');
+  } finally {
+    await rm(linkedPublic, { recursive: true, force: true });
+  }
+});
+
+test('DOCX summaries separate paragraphs and decode entities into plain text', async t => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.documentsDir, 'paragraphs.docx'), await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('First paragraph.'), new Paragraph('Second & third <literal> paragraph.')] }] })));
+  const { entries: [entry] } = await f.build();
+  assert.equal(entry.summary, 'First paragraph. Second & third <literal> paragraph.');
 });

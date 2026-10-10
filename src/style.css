@@ -1,0 +1,36 @@
+:root { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; color: #55574f; background: #f6f3eb; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 960px; }
+button { font: inherit; }
+.archive-scene { position: relative; min-height: 100vh; overflow: hidden; isolation: isolate; background: radial-gradient(ellipse at 39% 58%, #fffef6 0%, transparent 48%), radial-gradient(ellipse at 85% 25%, #ffffffb0 0%, transparent 52%), linear-gradient(126deg, #f7f4ec, #eeebe3 53%, #faf7f0); }
+.archive-scene::before, .archive-scene::after { content: ''; position: absolute; pointer-events: none; z-index: -1; }
+.archive-scene::before { inset: 23% 0 14%; border-block: 1px solid #ffffffc0; transform: skewY(-12deg); }
+.archive-scene::after { width: 68vw; height: 68vw; border: 1px solid #ffffffc9; border-radius: 50%; left: 24%; top: 6%; }
+.orbit { position: absolute; z-index: -1; inset: 18% 8% 8%; border: 1px dashed #b4ae9266; border-radius: 50%; transform: rotate(-21deg); pointer-events: none; }
+.archive-brand { position: absolute; left: 5%; top: 6%; }
+.archive-brand h1 { margin: 0; font-size: 36px; font-weight: 300; letter-spacing: .36em; }
+.archive-brand p { font-size: 14px; letter-spacing: .42em; margin: 10px 0 25px; }
+.brand-caption { font-size: 10px; letter-spacing: .2em; color: #8c8d81; }
+.archive-viewport { position: relative; margin-top: 230px; padding: 155px 140px 95px; overflow-x: auto; overflow-y: hidden; min-height: 540px; scrollbar-width: thin; scrollbar-color: #b7b4a1 transparent; perspective: 2200px; }
+.archive-row { position: relative; height: 285px; margin: 0 auto; transform-style: preserve-3d; transform: rotateX(16deg) rotateY(-20deg) rotateZ(-10deg); }
+.file-position { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
+.archive-file { position: relative; display: block; width: 205px; height: 260px; border: 1px solid #d1c7ac; border-radius: 3px 12px 3px 3px; color: #73725e; text-align: left; background: linear-gradient(100deg, #faf3df, #ece0c7); box-shadow: 4px 2px 0 #fff9e9, 6px 3px 0 #d6ccb5, 10px 7px 0 #f8efdc, 12px 8px 0 #d7cbb4, 18px 25px 23px #9c907126; transform: translateY(0) rotateY(-51deg); transform-origin: left bottom; transform-style: preserve-3d; animation: archive-wave 4.8s ease-in-out infinite; animation-delay: var(--wave-delay); cursor: pointer; transition: transform .65s cubic-bezier(.2,.7,.2,1), box-shadow .65s; }
+.archive-file::before { content: ''; position: absolute; width: 58px; height: 18px; top: -17px; left: -1px; border: 1px solid #d1c7ac; border-bottom: 0; border-radius: 4px 6px 0 0; background: #f5ebd5; }
+.file-docx, .file-doc { background: linear-gradient(100deg, #e3e4ce, #c9ccb4); }
+.file-docx::before, .file-doc::before { background: #dddfc8; }
+.archive-file:hover, .archive-file:focus-visible { animation: none; transform: translateY(-78px) rotateY(-51deg); box-shadow: 4px 2px 0 #fff9e9, 6px 3px 0 #d6ccb5, 10px 7px 0 #f8efdc, 12px 8px 0 #d7cbb4, 20px 55px 36px #9c90712b; }
+.archive-file:focus-visible { outline: 2px solid #638d82; outline-offset: 7px; }
+.archive-file.is-selected { animation: none; transform: translateY(-190px) rotateY(-51deg); }
+.file-number { display: block; padding: 17px 17px 0; font-size: 23px; font-weight: 300; }
+.file-title { display: block; margin: 28px 17px; font-size: 15px; line-height: 1.8; max-height: 84px; overflow: hidden; overflow-wrap: anywhere; }
+.file-type { position: absolute; left: 17px; bottom: 43px; font-size: 11px; letter-spacing: .18em; }
+.file-mark { position: absolute; left: 17px; bottom: 19px; font-size: 8px; letter-spacing: .12em; opacity: .55; }
+.file-detail { position: absolute; top: 8%; left: 48%; width: min(440px, 40%); border-left: 1px solid #8b947e; padding: 4px 0 4px 22px; pointer-events: none; }
+.detail-index { font-size: 10px; letter-spacing: .22em; color: #7d9487; }
+.file-detail h2 { font-size: 19px; font-weight: 400; margin: 11px 0; overflow-wrap: anywhere; }
+.detail-meta { font-size: 11px; color: #838376; }
+.detail-summary { font-size: 12px; line-height: 1.8; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.archive-footer { margin: 22px 5% 35px; color: #969889; letter-spacing: .13em; font-size: 10px; }
+.archive-empty { position: absolute; top: 48%; width: 100%; text-align: center; font-size: 22px; font-weight: 300; letter-spacing: .08em; }
+.archive-empty p { font-size: 12px; margin-top: 24px; color: #959688; }
+@keyframes archive-wave { 0%, 100% { transform: translateY(0) rotateY(-51deg); } 50% { transform: translateY(-12px) rotateY(-51deg); } }

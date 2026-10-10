@@ -3,11 +3,19 @@ import { renderReader } from './reader.ts';
 import type { ArchiveManifest } from './types.ts';
 import './style.css';
 
+const appStates = new WeakMap<HTMLElement, { generation: number; dispose?: () => void }>();
+
 export async function startArchive(app: HTMLElement) {
+  const state = appStates.get(app) ?? { generation: 0 };
+  appStates.set(app, state);
+  const generation = ++state.generation;
+  state.dispose?.();
+  state.dispose = undefined;
   try {
     const response = await fetch('/archive/manifest.json');
     if (!response.ok) throw new Error('manifest');
     const manifest: ArchiveManifest = await response.json();
+    if (generation !== state.generation) return;
     let active = false;
     const scene = renderScene(manifest.entries, (entry, trigger) => {
       if (active) return;
@@ -21,7 +29,7 @@ export async function startArchive(app: HTMLElement) {
         reader.querySelector<HTMLButtonElement>('.reader-close')!.focus();
       }, 650);
       scene.setAttribute('inert', '');
-      const close = () => {
+      const close = (restoreFocus = true) => {
         clearTimeout(timer);
         app.querySelector('.archive-reader')?.remove();
         scene.classList.remove('is-extracting', 'is-reading');
@@ -29,15 +37,18 @@ export async function startArchive(app: HTMLElement) {
         trigger.classList.remove('is-selected');
         document.removeEventListener('keydown', onKey);
         active = false;
-        trigger.focus();
+        state.dispose = undefined;
+        if (restoreFocus && trigger.isConnected) trigger.focus();
       };
       const onKey = (event: KeyboardEvent) => {
         if (event.key === 'Escape') { event.preventDefault(); close(); }
       };
       document.addEventListener('keydown', onKey);
+      state.dispose = () => close(false);
     });
     app.replaceChildren(scene);
   } catch {
+    if (generation !== state.generation) return;
     const message = document.createElement('p');
     message.className = 'archive-empty';
     message.textContent = '档案目录读取失败。请重试，或重新启动开发服务 / 重新构建后刷新页面。';

@@ -12,7 +12,7 @@ export function renderReader(entry: ArchiveEntry, onClose: () => void): HTMLElem
   close.type = 'button';
   close.className = 'reader-close';
   close.textContent = '← 返回档案';
-  close.addEventListener('click', onClose);
+  close.addEventListener('click', () => onClose());
   const title = document.createElement('h2');
   title.textContent = entry.title;
   const download = document.createElement('a');
@@ -30,14 +30,34 @@ export function renderReader(entry: ArchiveEntry, onClose: () => void): HTMLElem
     const frame = document.createElement('iframe');
     frame.className = 'reader-frame';
     frame.title = `${entry.title} · 档案正文`;
-    frame.src = entry.type === 'pdf' ? entry.sourceUrl : entry.previewUrl!;
+    if (entry.type === 'pdf') frame.src = entry.sourceUrl;
     if (entry.type !== 'pdf') {
+      frame.dataset.previewUrl = entry.previewUrl!;
       frame.setAttribute('sandbox', 'allow-same-origin');
       frame.addEventListener('load', () => {
         frame.contentDocument?.addEventListener('keydown', event => {
           if (event.key === 'Escape') onClose();
         });
       });
+      const loading = document.createElement('p');
+      loading.className = 'reader-message';
+      loading.setAttribute('role', 'status');
+      loading.textContent = '正在读取预览…';
+      reader.append(loading);
+      frame.hidden = true;
+      void (async () => {
+        try {
+          const response = await fetch(entry.previewUrl!);
+          if (!response.ok) throw new Error('preview');
+          const html = await response.text();
+          frame.srcdoc = html;
+          frame.hidden = false;
+          loading.remove();
+        } catch {
+          frame.remove();
+          loading.textContent = '预览读取失败，请下载原文件查看。';
+        }
+      })();
     }
     reader.append(frame);
   }

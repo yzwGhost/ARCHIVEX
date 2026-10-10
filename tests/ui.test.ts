@@ -68,15 +68,24 @@ test('blurring a file preserves metadata for a still hovered file', () => {
   assert.match(detail.textContent!, /第二份档案/);
 });
 
-test('reader previews converted HTML and native PDF with downloads', async () => {
+test('reader previews converted HTML and native PDF with downloads', async t => {
   const { renderReader } = await import('../src/reader.ts');
+  const requests: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string) => { requests.push(url); return new Response('<p>正文</p>'); });
   for (const type of ['md', 'docx', 'pdf'] as const) {
     const item = { ...entry, type, previewUrl: '/archive/previews/a.html' };
     const reader = renderReader(item, () => {});
     assert.equal(reader.getAttribute('role'), 'dialog');
-    assert.equal(reader.querySelector('iframe')?.getAttribute('src'), type === 'pdf' ? item.sourceUrl : item.previewUrl);
+    const frame = reader.querySelector('iframe')!;
+    assert.equal(type === 'pdf' ? frame.getAttribute('src') : frame.dataset.previewUrl, type === 'pdf' ? item.sourceUrl : item.previewUrl);
+    if (type !== 'pdf') {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      assert.equal(frame.srcdoc, '<p>正文</p>');
+      assert.equal(frame.getAttribute('sandbox'), 'allow-same-origin');
+    }
     assert.equal(reader.querySelector('a[download]')?.getAttribute('href'), entry.sourceUrl);
   }
+  assert.deepEqual(requests, ['/archive/previews/a.html', '/archive/previews/a.html']);
 });
 
 test('legacy Word and preview errors explain fallback and preserve downloads', async () => {
@@ -123,4 +132,54 @@ test('manifest failure offers a working retry', async t => {
   app.querySelector('button')!.click();
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.match(app.textContent!, /将文件放入 documents\//);
+});
+
+test('stale failed retry cannot replace recovered scene or reader', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  const requests: Array<{ resolve: (value: Response) => void; reject: (error: Error) => void }> = [];
+  t.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve, reject) => requests.push({ resolve, reject })));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  const first = startArchive(app);
+  const second = startArchive(app);
+  requests[1].resolve(new Response(JSON.stringify({ entries: [entry], warnings: [] })));
+  await second;
+  const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  trigger.click();
+  t.mock.timers.tick(650);
+  requests[0].reject(new Error('stale failure'));
+  await first;
+  assert.ok(app.querySelector('[role=dialog]'));
+  app.querySelector<HTMLButtonElement>('.reader-close')!.click();
+  assert.equal(document.activeElement, trigger);
+});
+
+test('failed HTML preview request explains failure and keeps download', async t => {
+  const { renderReader } = await import('../src/reader.ts');
+  t.mock.method(globalThis, 'fetch', async () => new Response('missing', { status: 404 }));
+  const reader = renderReader({ ...entry, previewUrl: '/missing.html' }, () => {});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(reader.textContent!, /预览读取失败/);
+  assert.equal(reader.querySelector('iframe'), null);
+  assert.equal(reader.querySelector('a[download]')?.getAttribute('href'), entry.sourceUrl);
+});
+
+test('reloading disposes an extraction timer and its Escape listener', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [entry], warnings: [] })));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  const oldTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  oldTrigger.click();
+  await startArchive(app);
+  const newTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  newTrigger.focus();
+  t.mock.timers.tick(650);
+  assert.equal(app.querySelector('[role=dialog]'), null);
+  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+  assert.equal(document.activeElement, newTrigger);
+  assert.equal(oldTrigger.isConnected, false);
 });

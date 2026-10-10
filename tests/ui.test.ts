@@ -42,3 +42,26 @@ test('focus displays independent metadata and blur hides it', () => {
   button.dispatchEvent(new dom.window.FocusEvent('blur'));
   assert.equal(detail.hidden, true);
 });
+test('leaving a hovered file restores metadata for the focused file', () => {
+  const scene = renderScene([entry, { ...entry, id: 'b', title: '第二份档案' }], () => {});
+  const [first, second] = scene.querySelectorAll('button');
+  first.dispatchEvent(new dom.window.FocusEvent('focus'));
+  second.dispatchEvent(new dom.window.Event('pointerenter'));
+  const detail = scene.querySelector<HTMLElement>('.file-detail')!;
+  assert.match(detail.textContent!, /第二份档案/);
+  second.dispatchEvent(new dom.window.Event('pointerleave'));
+  assert.equal(detail.hidden, false);
+  assert.match(detail.textContent!, /<研究记录>/);
+  first.dispatchEvent(new dom.window.FocusEvent('blur'));
+  assert.equal(detail.hidden, true);
+});
+test('blurring a file preserves metadata for a still hovered file', () => {
+  const scene = renderScene([entry, { ...entry, id: 'b', title: '第二份档案' }], () => {});
+  const [first, second] = scene.querySelectorAll('button');
+  first.dispatchEvent(new dom.window.FocusEvent('focus'));
+  second.dispatchEvent(new dom.window.Event('pointerenter'));
+  first.dispatchEvent(new dom.window.FocusEvent('blur'));
+  const detail = scene.querySelector<HTMLElement>('.file-detail')!;
+  assert.equal(detail.hidden, false);
+  assert.match(detail.textContent!, /第二份档案/);
+});

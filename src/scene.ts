@@ -38,6 +38,15 @@ export function renderScene(entries: ArchiveEntry[], onOpen: (entry: ArchiveEntr
   detail.hidden = true;
   detail.setAttribute('aria-live', 'polite');
   const positions = layoutFiles(entries.length);
+  let hovered: number | null = null;
+  let focused: number | null = null;
+  const updateDetail = () => {
+    const index = hovered ?? focused;
+    detail.hidden = index === null;
+    if (index === null) return;
+    const entry = entries[index];
+    detail.replaceChildren(textElement('span', 'detail-index', `ARCHIVE / ${String(index + 1).padStart(2, '0')}`), textElement('h2', '', entry.title), textElement('p', 'detail-meta', `${entry.date} · ${entry.type.toUpperCase()}${entry.category ? ` · ${entry.category}` : ''}`), textElement('p', 'detail-summary', entry.summary));
+  };
 
   entries.forEach((entry, index) => {
     const position = positions[index];
@@ -51,14 +60,10 @@ export function renderScene(entries: ArchiveEntry[], onOpen: (entry: ArchiveEntr
     button.dataset.entryId = entry.id;
     button.setAttribute('aria-label', `${entry.title}，${entry.type.toUpperCase()}，打开档案`);
     button.append(textElement('span', 'file-number', String(index + 1).padStart(2, '0')), textElement('span', 'file-title', entry.title), textElement('span', 'file-type', entry.type.toUpperCase()), textElement('span', 'file-mark', 'RH / RESEARCH'));
-    const showDetail = () => {
-      detail.replaceChildren(textElement('span', 'detail-index', `ARCHIVE / ${String(index + 1).padStart(2, '0')}`), textElement('h2', '', entry.title), textElement('p', 'detail-meta', `${entry.date} · ${entry.type.toUpperCase()}${entry.category ? ` · ${entry.category}` : ''}`), textElement('p', 'detail-summary', entry.summary));
-      detail.hidden = false;
-    };
-    button.addEventListener('pointerenter', showDetail);
-    button.addEventListener('focus', showDetail);
-    button.addEventListener('pointerleave', () => { if (document.activeElement !== button) detail.hidden = true; });
-    button.addEventListener('blur', () => { detail.hidden = true; });
+    button.addEventListener('pointerenter', () => { hovered = index; updateDetail(); });
+    button.addEventListener('focus', () => { focused = index; updateDetail(); });
+    button.addEventListener('pointerleave', () => { if (hovered === index) hovered = null; updateDetail(); });
+    button.addEventListener('blur', () => { if (focused === index) focused = null; updateDetail(); });
     button.addEventListener('click', () => onOpen(entry, button));
     button.addEventListener('keydown', event => {
       if (event.key === 'Enter' || event.key === ' ') {

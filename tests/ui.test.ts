@@ -68,17 +68,17 @@ test('blurring a file preserves metadata for a still hovered file', () => {
   assert.match(detail.textContent!, /第二份档案/);
 });
 
-test('reader previews converted HTML and native PDF with downloads', async t => {
+test('reader previews converted HTML with downloads', async t => {
   const { renderReader } = await import('../src/reader.ts');
   const requests: string[] = [];
   t.mock.method(globalThis, 'fetch', async (url: string) => { requests.push(url); return new Response('<p>正文</p>'); });
-  for (const type of ['md', 'docx', 'pdf'] as const) {
+  for (const type of ['md', 'docx'] as const) {
     const item = { ...entry, type, previewUrl: '/archive/previews/a.html' };
     const reader = renderReader(item, () => {});
     assert.equal(reader.getAttribute('role'), 'dialog');
     const frame = reader.querySelector('iframe')!;
-    assert.equal(type === 'pdf' ? frame.getAttribute('src') : frame.dataset.previewUrl, type === 'pdf' ? item.sourceUrl : item.previewUrl);
-    if (type !== 'pdf') {
+    assert.equal(frame.dataset.previewUrl, item.previewUrl);
+    {
       await new Promise(resolve => setTimeout(resolve, 0));
       assert.equal(frame.srcdoc, '<p>正文</p>');
       assert.equal(frame.getAttribute('sandbox'), 'allow-same-origin');
@@ -208,4 +208,34 @@ test('old scene cannot open a stale reader while manifest reload is pending', as
   document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
   assert.equal(document.activeElement, newTrigger);
   assert.equal(oldTrigger.classList.contains('is-selected'), false);
+});
+
+test('PDF interaction stays in app document so Escape closes and restores focus', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [{ ...entry, type: 'pdf' }], warnings: [] })));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  trigger.click();
+  t.mock.timers.tick(650);
+  assert.equal(app.querySelector('iframe'), null);
+  const pages = app.querySelector<HTMLElement>('.reader-pdf')!;
+  assert.ok(pages);
+  pages.click();
+  pages.focus();
+  pages.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(app.querySelector('[role=dialog]'), null);
+  assert.equal(document.activeElement, trigger);
+});
+
+test('PDF network failure shows readable fallback and source download', async t => {
+  const { renderReader } = await import('../src/reader.ts');
+  t.mock.method(globalThis, 'fetch', async () => new Response('missing', { status: 404 }));
+  const reader = renderReader({ ...entry, type: 'pdf' }, () => {});
+  document.body.replaceChildren(reader);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(reader.textContent!, /PDF 预览读取失败/);
+  assert.equal(reader.querySelector('a[download]')?.getAttribute('href'), entry.sourceUrl);
 });

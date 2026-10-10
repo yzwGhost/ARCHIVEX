@@ -43,5 +43,8 @@ button { font: inherit; }
 .reader-header a { color: #526e61; font-size: 12px; }
 .reader-close:focus-visible, .reader-header a:focus-visible { outline: 2px solid #638d82; outline-offset: 4px; }
 .reader-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: white; }
+.reader-pdf { flex: 1; min-height: 0; overflow: auto; padding: 24px; background: #e9e7df; }
+.reader-pdf canvas { display: block; max-width: 100%; height: auto; margin: 0 auto 24px; background: white; box-shadow: 0 3px 12px #5552; }
+.reader-pdf:focus-visible { outline: 2px solid #638d82; outline-offset: -4px; }
 .reader-message { margin: auto; padding: 50px; line-height: 2; }
 @keyframes reader-reveal { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }

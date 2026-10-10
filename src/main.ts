@@ -18,7 +18,7 @@ export async function startArchive(app: HTMLElement) {
     if (generation !== state.generation) return;
     let active = false;
     const scene = renderScene(manifest.entries, (entry, trigger) => {
-      if (active) return;
+      if (active || generation !== state.generation) return;
       active = true;
       trigger.classList.add('is-selected');
       scene.classList.add('is-extracting');

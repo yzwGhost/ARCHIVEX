@@ -183,3 +183,29 @@ test('reloading disposes an extraction timer and its Escape listener', async t =
   assert.equal(document.activeElement, newTrigger);
   assert.equal(oldTrigger.isConnected, false);
 });
+
+test('old scene cannot open a stale reader while manifest reload is pending', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  let resolveReload!: (value: Response) => void;
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    if (++calls === 1) return new Response(JSON.stringify({ entries: [entry], warnings: [] }));
+    return new Promise<Response>(resolve => { resolveReload = resolve; });
+  });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  const oldTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  const reload = startArchive(app);
+  oldTrigger.click();
+  resolveReload(new Response(JSON.stringify({ entries: [entry], warnings: [] })));
+  await reload;
+  const newTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  newTrigger.focus();
+  t.mock.timers.tick(650);
+  assert.equal(app.querySelector('[role=dialog]'), null);
+  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
+  assert.equal(document.activeElement, newTrigger);
+  assert.equal(oldTrigger.classList.contains('is-selected'), false);
+});

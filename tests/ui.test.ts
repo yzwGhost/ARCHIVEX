@@ -5,237 +5,100 @@ import { renderScene } from '../src/scene.ts';
 import type { ArchiveEntry } from '../src/types.ts';
 import { registerHooks } from 'node:module';
 registerHooks({ load(url, context, nextLoad) { return url.endsWith('.css') ? { format: 'module', source: '', shortCircuit: true } : nextLoad(url, context); } });
-
 const dom = new JSDOM('<!doctype html><body></body>');
 globalThis.document = dom.window.document;
 const entry: ArchiveEntry = { id: 'a', relativePath: 'a.md', title: '<研究记录>', summary: '细胞实验摘要', date: '2026-10-10', category: '实验', type: 'md', sourceUrl: '/archive/a.md' };
-
-test('empty scene explains where to add files without fake files', () => {
+const click = (root: HTMLElement, selector: string) => root.querySelector<HTMLButtonElement>(selector)!.click();
+test('empty archive explains import without imaginary files', () => {
   const scene = renderScene([], () => {});
   assert.match(scene.textContent!, /将文件放入 documents\//);
-  assert.equal(scene.querySelectorAll('button').length, 0);
+  assert.equal(scene.querySelectorAll('.archive-file').length, 0); scene.dispose();
 });
-test('each real entry has a safely rendered title and format label', () => {
-  const scene = renderScene([entry, { ...entry, id: 'b', type: 'pdf' }], () => {});
-  assert.equal(scene.querySelectorAll('.archive-file').length, 2);
-  assert.match(scene.textContent!, /<研究记录>/);
-  assert.match(scene.textContent!, /MD/);
-  assert.match(scene.textContent!, /PDF/);
-  assert.equal(scene.querySelector('研究记录'), null);
-});
-test('pointer and keyboard activation open the matching entry and trigger', () => {
+test('fallback safely shows real metadata before explicit reading', () => {
   const opened: unknown[][] = [];
-  const scene = renderScene([entry], (...args) => opened.push(args));
-  const button = scene.querySelector('button')!;
-  button.click();
-  button.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-  button.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-  assert.equal(opened.length, 3);
-  for (const args of opened) assert.deepEqual(args, [entry, button]);
+  const scene = renderScene([entry], (...args) => opened.push(args)); document.body.replaceChildren(scene);
+  assert.equal(scene.querySelector('研究记录'), null);
+  assert.match(scene.querySelector('.file-detail')!.textContent!, /<研究记录>/);
+  click(scene, '.archive-file'); assert.equal(scene.state.mode, 'detail'); assert.equal(opened.length, 0);
+  click(scene, '[data-action=read]'); assert.equal(opened[0][0], entry);
+  assert.equal(opened[0][1], scene.querySelector('[data-action=read]')); scene.dispose();
 });
-test('focus displays independent metadata and blur hides it', () => {
-  const scene = renderScene([entry], () => {});
-  const button = scene.querySelector('button')!;
-  button.dispatchEvent(new dom.window.FocusEvent('focus'));
-  const detail = scene.querySelector<HTMLElement>('.file-detail')!;
-  assert.equal(detail.hidden, false);
-  assert.match(detail.textContent!, /细胞实验摘要/);
-  assert.match(detail.textContent!, /2026-10-10/);
-  button.dispatchEvent(new dom.window.FocusEvent('blur'));
-  assert.equal(detail.hidden, true);
+test('search opens the actual match then inspect explodes and returns to selected file', () => {
+  const scene = renderScene([entry, {...entry, id:'b', title:'第二份档案'}], () => {}); document.body.replaceChildren(scene);
+  click(scene, '[data-action=index]');
+  const input = scene.querySelector<HTMLInputElement>('.directory-search')!;
+  input.value = 'X-002'; input.dispatchEvent(new dom.window.Event('input'));
+  assert.equal(scene.querySelectorAll('.directory-result').length, 1); click(scene, '.directory-result');
+  assert.equal(scene.state.entry.id, 'b'); assert.equal(scene.querySelector('.archive-directory'), null);
+  click(scene, '[data-action=inspect]'); click(scene, '[data-action=explode]'); assert.equal(scene.state.exploded, true);
+  click(scene, '[data-action=back]'); assert.equal(scene.state.mode, 'detail'); assert.equal(scene.state.exploded, false);
+  click(scene, '[data-action=back]'); assert.equal(scene.state.selected, 1); scene.dispose();
 });
-test('leaving a hovered file restores metadata for the focused file', () => {
-  const scene = renderScene([entry, { ...entry, id: 'b', title: '第二份档案' }], () => {});
-  const [first, second] = scene.querySelectorAll('button');
-  first.dispatchEvent(new dom.window.FocusEvent('focus'));
-  second.dispatchEvent(new dom.window.Event('pointerenter'));
-  const detail = scene.querySelector<HTMLElement>('.file-detail')!;
-  assert.match(detail.textContent!, /第二份档案/);
-  second.dispatchEvent(new dom.window.Event('pointerleave'));
-  assert.equal(detail.hidden, false);
-  assert.match(detail.textContent!, /<研究记录>/);
-  first.dispatchEvent(new dom.window.FocusEvent('blur'));
-  assert.equal(detail.hidden, true);
+test('directory ignores navigation keys in search and restores focus after Escape', () => {
+  const scene = renderScene([entry,{...entry,id:'b'}],()=>{}); document.body.replaceChildren(scene);
+  const trigger = scene.querySelector<HTMLButtonElement>('[data-action=index]')!; trigger.focus(); trigger.click();
+  const input = scene.querySelector<HTMLInputElement>('input')!;
+  input.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true})); assert.equal(scene.state.selected,0);
+  input.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  assert.equal(scene.querySelector('.archive-directory'),null); assert.equal(document.activeElement,trigger); scene.dispose();
 });
-test('blurring a file preserves metadata for a still hovered file', () => {
-  const scene = renderScene([entry, { ...entry, id: 'b', title: '第二份档案' }], () => {});
-  const [first, second] = scene.querySelectorAll('button');
-  first.dispatchEvent(new dom.window.FocusEvent('focus'));
-  second.dispatchEvent(new dom.window.Event('pointerenter'));
-  first.dispatchEvent(new dom.window.FocusEvent('blur'));
-  const detail = scene.querySelector<HTMLElement>('.file-detail')!;
-  assert.equal(detail.hidden, false);
-  assert.match(detail.textContent!, /第二份档案/);
-});
-
-test('reader previews converted HTML with downloads', async t => {
-  const { renderReader } = await import('../src/reader.ts');
-  const requests: string[] = [];
-  t.mock.method(globalThis, 'fetch', async (url: string) => { requests.push(url); return new Response('<p>正文</p>'); });
-  for (const type of ['md', 'docx'] as const) {
-    const item = { ...entry, type, previewUrl: '/archive/previews/a.html' };
-    const reader = renderReader(item, () => {});
-    assert.equal(reader.getAttribute('role'), 'dialog');
-    const frame = reader.querySelector('iframe')!;
-    assert.equal(frame.dataset.previewUrl, item.previewUrl);
-    {
-      await new Promise(resolve => setTimeout(resolve, 0));
-      assert.equal(frame.srcdoc, '<p>正文</p>');
-      assert.equal(frame.getAttribute('sandbox'), 'allow-same-origin');
-    }
-    assert.equal(reader.querySelector('a[download]')?.getAttribute('href'), entry.sourceUrl);
+test('reader closes into detail, restores focus and is disposed on reload', async t => {
+  const {startArchive}=await import('../src/main.ts');
+  t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({entries:[entry],warnings:[]})));
+  const app=document.createElement('main'); document.body.replaceChildren(app); await startArchive(app); click(app,'.archive-file');
+  const trigger=app.querySelector<HTMLButtonElement>('[data-action=read]')!;
+  for(const method of ['Escape','button']) {
+    trigger.click(); assert.ok(app.querySelector('.archive-reader')); assert.ok(app.querySelector('.archive-scene')!.hasAttribute('inert'));
+    if(method==='Escape') document.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})); else click(app,'.reader-close');
+    assert.equal(app.querySelector('.archive-reader'),null); assert.equal(document.activeElement,trigger);
+    assert.equal(app.querySelector<HTMLElement>('.archive-scene')!.dataset.mode,'detail');
   }
-  assert.deepEqual(requests, ['/archive/previews/a.html', '/archive/previews/a.html']);
+  trigger.click(); await startArchive(app); assert.equal(app.querySelector('.archive-reader'),null); assert.equal(trigger.isConnected,false);
 });
-
-test('legacy Word and preview errors explain fallback and preserve downloads', async () => {
-  const { renderReader } = await import('../src/reader.ts');
-  for (const item of [{ ...entry, type: 'doc' as const }, { ...entry, error: '转换失败' }]) {
-    const reader = renderReader(item, () => {});
-    assert.match(reader.textContent!, item.error ? /转换失败/ : /仅支持下载/);
-    assert.equal(reader.querySelector('iframe'), null);
-    assert.ok(reader.querySelector('a[download]'));
+test('stale manifest failure cannot replace current reader', async t => {
+  const {startArchive}=await import('../src/main.ts');
+  const pending: {resolve:(r:Response)=>void;reject:(e:Error)=>void}[]=[];
+  t.mock.method(globalThis,'fetch',()=>new Promise<Response>((resolve,reject)=>pending.push({resolve,reject})));
+  const app=document.createElement('main'); document.body.replaceChildren(app);
+  const first=startArchive(app),second=startArchive(app);
+  pending[1].resolve(new Response(JSON.stringify({entries:[entry]}))); await second;
+  click(app,'.archive-file'); click(app,'[data-action=read]'); pending[0].reject(new Error('stale')); await first;
+  assert.ok(app.querySelector('.archive-reader')); click(app,'.reader-close');
+});
+test('manifest error has working retry', async t => {
+  const {startArchive}=await import('../src/main.ts'); let failed=true;
+  t.mock.method(globalThis,'fetch',async()=>{if(failed)throw new Error();return new Response(JSON.stringify({entries:[]}));});
+  const app=document.createElement('main'); await startArchive(app); assert.match(app.textContent!,/读取失败/);
+  failed=false; click(app,'button'); await new Promise(resolve=>setTimeout(resolve,0)); assert.match(app.textContent!,/将文件放入 documents\//);
+});
+test('Markdown and Word preview safely and preserve downloads',async t=>{
+  const {renderReader}=await import('../src/reader.ts'); t.mock.method(globalThis,'fetch',async()=>new Response('<p>正文</p>'));
+  for(const type of ['md','docx'] as const){const reader=renderReader({...entry,type,previewUrl:'/preview'},()=>{});
+    await new Promise(resolve=>setTimeout(resolve,0)); assert.equal(reader.querySelector('iframe')!.srcdoc,'<p>正文</p>');
+    assert.equal(reader.querySelector('iframe')!.getAttribute('sandbox'),'allow-same-origin'); assert.equal(reader.querySelector('a[download]')!.getAttribute('href'),entry.sourceUrl);
   }
 });
-
-test('app extracts before reading, closes with Escape or return, and restores focus', async t => {
-  const { startArchive } = await import('../src/main.ts');
-  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [{ ...entry, previewUrl: '/preview.html' }], warnings: [] })));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const app = document.createElement('main');
-  document.body.replaceChildren(app);
-  await startArchive(app);
-  const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
-  for (const closeWith of ['Escape', 'button']) {
-    trigger.click();
-    assert.ok(trigger.classList.contains('is-selected'));
-    assert.equal(app.querySelector('[role=dialog]'), null);
-    t.mock.timers.tick(650);
-    assert.ok(app.querySelector('[role=dialog]'));
-    assert.equal(app.querySelector('.archive-scene')?.getAttribute('inert'), '');
-    if (closeWith === 'Escape') document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    else app.querySelector<HTMLButtonElement>('.reader-close')!.click();
-    assert.equal(app.querySelector('[role=dialog]'), null);
-    assert.equal(document.activeElement, trigger);
-    assert.equal(trigger.classList.contains('is-selected'), false);
+test('unsupported Word and failed previews explain fallback with download',async t=>{
+  const {renderReader}=await import('../src/reader.ts'); t.mock.method(globalThis,'fetch',async()=>new Response('missing',{status:404}));
+  for(const item of [{...entry,type:'doc' as const},{...entry,error:'转换失败'},{...entry,previewUrl:'/bad'},{...entry,type:'pdf' as const}]){
+    const reader=renderReader(item,()=>{});document.body.replaceChildren(reader);await new Promise(resolve=>setTimeout(resolve,0));
+    assert.match(reader.textContent!,/失败|仅支持下载/); assert.equal(reader.querySelector('iframe'),null);assert.ok(reader.querySelector('a[download]'));
   }
 });
-
-test('manifest failure offers a working retry', async t => {
-  const { startArchive } = await import('../src/main.ts');
-  let failed = true;
-  t.mock.method(globalThis, 'fetch', async () => { if (failed) throw new Error('offline'); return new Response(JSON.stringify({ entries: [], warnings: [] })); });
-  const app = document.createElement('main');
-  await startArchive(app);
-  assert.match(app.textContent!, /读取失败/);
-  failed = false;
-  app.querySelector('button')!.click();
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.match(app.textContent!, /将文件放入 documents\//);
+test('file ticks preserve focus and opening then returning restores the overview control',()=>{
+  const scene=renderScene([entry,{...entry,id:'b'}],()=>{});document.body.replaceChildren(scene);
+  const tick=scene.querySelectorAll<HTMLButtonElement>('.file-ticks button')[1];tick.focus();tick.click();
+  assert.equal(document.activeElement,tick);assert.equal(scene.state.selected,1);
+  const open=scene.querySelector<HTMLButtonElement>('[data-action=open]')!;open.focus();open.click();
+  assert.equal(document.activeElement,scene.querySelector('[data-action=back]'));
+  click(scene,'[data-action=back]');assert.equal(document.activeElement,open);scene.dispose();
 });
-
-test('stale failed retry cannot replace recovered scene or reader', async t => {
-  const { startArchive } = await import('../src/main.ts');
-  const requests: Array<{ resolve: (value: Response) => void; reject: (error: Error) => void }> = [];
-  t.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve, reject) => requests.push({ resolve, reject })));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const app = document.createElement('main');
-  document.body.replaceChildren(app);
-  const first = startArchive(app);
-  const second = startArchive(app);
-  requests[1].resolve(new Response(JSON.stringify({ entries: [entry], warnings: [] })));
-  await second;
-  const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
-  trigger.click();
-  t.mock.timers.tick(650);
-  requests[0].reject(new Error('stale failure'));
-  await first;
-  assert.ok(app.querySelector('[role=dialog]'));
-  app.querySelector<HTMLButtonElement>('.reader-close')!.click();
-  assert.equal(document.activeElement, trigger);
-});
-
-test('failed HTML preview request explains failure and keeps download', async t => {
-  const { renderReader } = await import('../src/reader.ts');
-  t.mock.method(globalThis, 'fetch', async () => new Response('missing', { status: 404 }));
-  const reader = renderReader({ ...entry, previewUrl: '/missing.html' }, () => {});
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.match(reader.textContent!, /预览读取失败/);
-  assert.equal(reader.querySelector('iframe'), null);
-  assert.equal(reader.querySelector('a[download]')?.getAttribute('href'), entry.sourceUrl);
-});
-
-test('reloading disposes an extraction timer and its Escape listener', async t => {
-  const { startArchive } = await import('../src/main.ts');
-  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [entry], warnings: [] })));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const app = document.createElement('main');
-  document.body.replaceChildren(app);
-  await startArchive(app);
-  const oldTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
-  oldTrigger.click();
-  await startArchive(app);
-  const newTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
-  newTrigger.focus();
-  t.mock.timers.tick(650);
-  assert.equal(app.querySelector('[role=dialog]'), null);
-  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
-  assert.equal(document.activeElement, newTrigger);
-  assert.equal(oldTrigger.isConnected, false);
-});
-
-test('old scene cannot open a stale reader while manifest reload is pending', async t => {
-  const { startArchive } = await import('../src/main.ts');
-  let resolveReload!: (value: Response) => void;
-  let calls = 0;
-  t.mock.method(globalThis, 'fetch', async () => {
-    if (++calls === 1) return new Response(JSON.stringify({ entries: [entry], warnings: [] }));
-    return new Promise<Response>(resolve => { resolveReload = resolve; });
-  });
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const app = document.createElement('main');
-  document.body.replaceChildren(app);
-  await startArchive(app);
-  const oldTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
-  const reload = startArchive(app);
-  oldTrigger.click();
-  resolveReload(new Response(JSON.stringify({ entries: [entry], warnings: [] })));
-  await reload;
-  const newTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
-  newTrigger.focus();
-  t.mock.timers.tick(650);
-  assert.equal(app.querySelector('[role=dialog]'), null);
-  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
-  assert.equal(document.activeElement, newTrigger);
-  assert.equal(oldTrigger.classList.contains('is-selected'), false);
-});
-
-test('PDF interaction stays in app document so Escape closes and restores focus', async t => {
-  const { startArchive } = await import('../src/main.ts');
-  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [{ ...entry, type: 'pdf' }], warnings: [] })));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const app = document.createElement('main');
-  document.body.replaceChildren(app);
-  await startArchive(app);
-  const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
-  trigger.click();
-  t.mock.timers.tick(650);
-  assert.equal(app.querySelector('iframe'), null);
-  const pages = app.querySelector<HTMLElement>('.reader-pdf')!;
-  assert.ok(pages);
-  pages.click();
-  pages.focus();
-  pages.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  assert.equal(app.querySelector('[role=dialog]'), null);
-  assert.equal(document.activeElement, trigger);
-});
-
-test('PDF network failure shows readable fallback and source download', async t => {
-  const { renderReader } = await import('../src/reader.ts');
-  t.mock.method(globalThis, 'fetch', async () => new Response('missing', { status: 404 }));
-  const reader = renderReader({ ...entry, type: 'pdf' }, () => {});
-  document.body.replaceChildren(reader);
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.match(reader.textContent!, /PDF 预览读取失败/);
-  assert.equal(reader.querySelector('a[download]')?.getAttribute('href'), entry.sourceUrl);
+test('keyboard focus follows selected tick into and out of the partial last group',()=>{
+  const entries=Array.from({length:37},(_,i)=>({...entry,id:String(i)}));
+  const scene=renderScene(entries,()=>{});document.body.replaceChildren(scene);
+  const tick=scene.querySelectorAll<HTMLButtonElement>('.file-ticks button')[7];tick.focus();tick.click();
+  tick.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
+  assert.equal(scene.state.selected,36);assert.equal(document.activeElement,scene.querySelectorAll('.file-ticks button')[4]);
+  document.activeElement!.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+  assert.equal(scene.state.selected,4);assert.equal(document.activeElement,scene.querySelectorAll('.file-ticks button')[4]);scene.dispose();
 });

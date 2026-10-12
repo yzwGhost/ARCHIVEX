@@ -374,3 +374,59 @@ test('upload completion refreshes archive once and keeps its category', async t 
   panel.querySelector<HTMLButtonElement>('.upload-close')!.click();
   assert.equal(document.activeElement, app.querySelector('.upload-trigger'));
 });
+
+test('closing during upload leaves the scene interactive and preserves a subsequently opened reader', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  let resolveUpload!: (value: Response) => void;
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    if (url === '/api/upload-capabilities') return new Response(JSON.stringify({ enabled: true }));
+    if (url === '/api/uploads') return new Promise<Response>(resolve => { resolveUpload = resolve; });
+    return new Response(JSON.stringify({ entries: [entry], warnings: [] }));
+  });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  app.querySelector<HTMLButtonElement>('.upload-trigger')!.click();
+  const panel = document.querySelector<HTMLElement>('.upload-panel')!;
+  Object.defineProperty(panel.querySelector<HTMLInputElement>('input[type=file]')!, 'files', { configurable: true, value: [new File(['A'], 'new.md')] });
+  panel.querySelector<HTMLButtonElement>('.upload-submit')!.click();
+  panel.querySelector<HTMLButtonElement>('.upload-close')!.click();
+  const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  trigger.click();
+  resolveUpload(new Response(JSON.stringify({ entry }), { status: 201 }));
+  await new Promise(resolve => setTimeout(resolve, 700));
+  assert.equal(document.querySelector('.upload-panel'), null);
+  assert.ok(app.querySelector('.archive-reader'));
+  app.querySelector<HTMLButtonElement>('.reader-close')!.click();
+  assert.equal(app.querySelector('.archive-scene')?.hasAttribute('inert'), false);
+});
+
+test('closing during archive refresh does not leave the new scene inert', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  let manifestReads = 0;
+  let resolveRefresh!: (value: Response) => void;
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    if (url === '/api/upload-capabilities') return new Response(JSON.stringify({ enabled: true }));
+    if (url === '/api/uploads') return new Response(JSON.stringify({ entry }), { status: 201 });
+    if (++manifestReads === 1) return new Response(JSON.stringify({ entries: [entry], warnings: [] }));
+    return new Promise<Response>(resolve => { resolveRefresh = resolve; });
+  });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  app.querySelector<HTMLButtonElement>('.upload-trigger')!.click();
+  const panel = document.querySelector<HTMLElement>('.upload-panel')!;
+  Object.defineProperty(panel.querySelector<HTMLInputElement>('input[type=file]')!, 'files', { configurable: true, value: [new File(['A'], 'new.md')] });
+  panel.querySelector<HTMLButtonElement>('.upload-submit')!.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(manifestReads, 2);
+  panel.querySelector<HTMLButtonElement>('.upload-close')!.click();
+  resolveRefresh(new Response(JSON.stringify({ entries: [entry], warnings: [] })));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(document.querySelector('.upload-panel'), null);
+  assert.equal(app.querySelector('.archive-scene')?.hasAttribute('inert'), false);
+});

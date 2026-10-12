@@ -70,6 +70,38 @@ test('upload enforces file size and removes temporary content', async t => {
   assert.deepEqual(await readdir(f.documentsDir), []);
 });
 
+test('upload accepts a file of exactly 50 MiB', async t => {
+  const f = await fixture(t);
+  const response = await upload(f, 'exact.doc', new Uint8Array(50 * 1024 * 1024));
+  assert.equal(response.status, 201, await response.clone().text());
+  assert.ok((await readdir(f.documentsDir)).includes('exact.doc'));
+});
+
+test('chunked upload exceeding 50 MiB responds before request ends and clears temporary content', async t => {
+  const f = await fixture(t);
+  const endpoint = new URL('/api/uploads', f.url);
+  const req = request(endpoint, { method: 'POST', headers: { 'Content-Type': 'multipart/form-data; boundary=overflow-test' } });
+  req.on('error', () => {});
+  const response = new Promise((resolve, reject) => {
+    req.on('response', res => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('error', reject);
+  });
+  req.write('--overflow-test\r\nContent-Disposition: form-data; name="file"; filename="large.md"\r\nContent-Type: text/markdown\r\n\r\n');
+  req.write(Buffer.alloc(50 * 1024 * 1024 + 1));
+  try {
+    assert.equal(await Promise.race([
+      response,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('No early overflow response')), 3000)),
+    ]), 413);
+    assert.deepEqual(await readdir(f.documentsDir), []);
+  } finally {
+    req.destroy();
+  }
+});
+
 test('aborted multipart request removes its temporary file', async t => {
   const f = await fixture(t);
   const endpoint = new URL('/api/uploads', f.url);

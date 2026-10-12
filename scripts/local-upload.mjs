@@ -46,13 +46,23 @@ async function parseUpload(req, documentsDir) {
   try {
     await new Promise((resolve, reject) => {
       let parser;
-      try { parser = Busboy({ headers: req.headers, preservePath: true, defParamCharset: 'utf8', limits: { fileSize: MAX_FILE_BYTES, files: 1, fields: 1 } }); }
+      try { parser = Busboy({ headers: req.headers, preservePath: true, defParamCharset: 'utf8', limits: { fileSize: MAX_FILE_BYTES + 1, files: 1, fields: 1 } }); }
       catch { reject(new UploadError(400, 'invalid_request', '上传请求格式无效。')); return; }
       parser.on('file', (field, stream, info) => {
         fileCount++;
         filename = info.filename;
         if (field !== 'file') invalidShape = true;
-        stream.on('limit', () => { tooLarge = true; });
+        stream.on('limit', () => {
+          tooLarge = true;
+          const error = new UploadError(413, 'too_large', '单文件不能超过 50 MiB。');
+          req.unpipe(parser);
+          req.pause();
+          reject(error);
+          queueMicrotask(() => {
+            stream.destroy(error);
+            parser.destroy(error);
+          });
+        });
         writes.push(pipeline(stream, createWriteStream(tempPath, { flags: 'wx' })));
       });
       parser.on('field', (field, value, info) => {

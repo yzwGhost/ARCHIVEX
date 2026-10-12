@@ -6,12 +6,18 @@ interface UploadPanelOptions {
 
 export function renderUploadPanel({ categories, onClose, onComplete }: UploadPanelOptions): HTMLElement {
   const panel = document.createElement('section');
+  let closed = false;
+  const closePanel = () => {
+    if (closed) return;
+    closed = true;
+    onClose();
+  };
   panel.className = 'upload-panel';
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-label', '上传档案');
   panel.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+    if (event.key === 'Escape') { event.preventDefault(); closePanel(); }
   });
   const heading = document.createElement('h2');
   heading.textContent = '上传档案';
@@ -19,7 +25,7 @@ export function renderUploadPanel({ categories, onClose, onComplete }: UploadPan
   close.type = 'button';
   close.className = 'upload-close';
   close.textContent = '关闭';
-  close.addEventListener('click', onClose);
+  close.addEventListener('click', closePanel);
   const fileLabel = document.createElement('label');
   fileLabel.textContent = '选择本地文件';
   const files = document.createElement('input');
@@ -66,6 +72,7 @@ export function renderUploadPanel({ categories, onClose, onComplete }: UploadPan
     void (async () => {
       let succeeded = 0;
       for (const file of selected) {
+        if (closed) break;
         const item = document.createElement('li');
         item.textContent = `${file.name} · 上传中`;
         results.append(item);
@@ -84,7 +91,7 @@ export function renderUploadPanel({ categories, onClose, onComplete }: UploadPan
       }
       status.textContent = `完成：${succeeded} / ${selected.length} 份上传成功。`;
       submit.disabled = false;
-      await onComplete();
+      if (!closed) await onComplete();
     })();
   });
   panel.append(heading, close, fileLabel, categoryLabel, newCategoryLabel, submit, status, results);

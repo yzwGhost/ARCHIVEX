@@ -5,7 +5,7 @@ import { renderUploadPanel } from './upload.ts';
 import type { ArchiveManifest, UploadCapabilities } from './types.ts';
 import './style.css';
 
-const appStates = new WeakMap<HTMLElement, { generation: number; category: string; dispose?: () => void }>();
+const appStates = new WeakMap<HTMLElement, { generation: number; category: string; dispose?: () => void; uploadPanel?: HTMLElement }>();
 
 export async function startArchive(app: HTMLElement) {
   const state = appStates.get(app) ?? { generation: 0, category: '' };
@@ -72,14 +72,16 @@ export async function startArchive(app: HTMLElement) {
             categories,
             onClose: () => {
               panel.remove();
-              app.querySelector('.archive-scene')?.removeAttribute('inert');
+              if (state.uploadPanel === panel) state.uploadPanel = undefined;
+              if (!state.uploadPanel?.isConnected) app.querySelector('.archive-scene')?.removeAttribute('inert');
               app.querySelector<HTMLButtonElement>('.upload-trigger')?.focus();
             },
             onComplete: async () => {
               await startArchive(app);
-              app.querySelector('.archive-scene')?.setAttribute('inert', '');
+              if (state.uploadPanel?.isConnected) app.querySelector('.archive-scene')?.setAttribute('inert', '');
             },
           });
+          state.uploadPanel = panel;
           app.ownerDocument.body.append(panel);
           panel.querySelector<HTMLInputElement>('input[type=file]')?.focus();
         } : undefined,

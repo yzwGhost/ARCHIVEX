@@ -239,3 +239,53 @@ test('PDF network failure shows readable fallback and source download', async t 
   assert.match(reader.textContent!, /PDF 预览读取失败/);
   assert.equal(reader.querySelector('a[download]')?.getAttribute('href'), entry.sourceUrl);
 });
+
+test('category options deduplicate values and filtering preserves archive order', async () => {
+  const { categoryOptions, filterEntries } = await import('../src/categories.ts');
+  const entries = [entry, { ...entry, id: 'b', category: '' }, { ...entry, id: 'c', category: '实验' }, { ...entry, id: 'd', category: '报告' }];
+  assert.deepEqual(categoryOptions(entries), ['实验', '未分类', '报告']);
+  assert.deepEqual(filterEntries(entries, '实验').map(item => item.id), ['a', 'c']);
+  assert.deepEqual(filterEntries(entries, '未分类').map(item => item.id), ['b']);
+  assert.deepEqual(filterEntries(entries, '').map(item => item.id), ['a', 'b', 'c', 'd']);
+});
+
+test('scene category control changes selection and empty result returns to all', () => {
+  const selected: string[] = [];
+  const scene = renderScene([], () => {}, { category: '实验', categories: ['实验'], onCategoryChange: value => selected.push(value) });
+  assert.match(scene.textContent!, /该分类暂无档案/);
+  scene.querySelector<HTMLButtonElement>('.show-all')!.click();
+  assert.deepEqual(selected, ['']);
+});
+
+test('category selection survives reload while available and resets when removed', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  let entries = [entry, { ...entry, id: 'b', category: '报告' }];
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries, warnings: [] })));
+  const app = document.createElement('main');
+  await startArchive(app);
+  const select = app.querySelector<HTMLSelectElement>('.category-select')!;
+  select.value = '实验';
+  select.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(app.querySelectorAll('.archive-file').length, 1);
+  await startArchive(app);
+  assert.equal(app.querySelector<HTMLSelectElement>('.category-select')?.value, '实验');
+  entries = [{ ...entry, id: 'b', category: '报告' }];
+  await startArchive(app);
+  assert.equal(app.querySelector<HTMLSelectElement>('.category-select')?.value, '');
+});
+
+test('a detached scene cannot open a reader after category change', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [entry, { ...entry, id: 'b', category: '报告' }], warnings: [] })));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  const oldButton = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  const select = app.querySelector<HTMLSelectElement>('.category-select')!;
+  select.value = '报告';
+  select.dispatchEvent(new dom.window.Event('change'));
+  oldButton.click();
+  t.mock.timers.tick(650);
+  assert.equal(app.querySelector('[role=dialog]'), null);
+});

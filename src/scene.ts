@@ -8,7 +8,14 @@ function textElement(tag: string, className: string, text: string): HTMLElement 
   return element;
 }
 
-export function renderScene(entries: ArchiveEntry[], onOpen: (entry: ArchiveEntry, trigger: HTMLButtonElement) => void): HTMLElement {
+interface SceneControls {
+  category: string;
+  categories: string[];
+  onCategoryChange: (category: string) => void;
+  onUpload?: () => void;
+}
+
+export function renderScene(entries: ArchiveEntry[], onOpen: (entry: ArchiveEntry, trigger: HTMLButtonElement) => void, controls?: SceneControls): HTMLElement {
   const scene = document.createElement('section');
   scene.className = 'archive-scene';
   scene.setAttribute('aria-label', '研究档案序列');
@@ -16,14 +23,50 @@ export function renderScene(entries: ArchiveEntry[], onOpen: (entry: ArchiveEntr
   header.className = 'archive-brand';
   header.append(textElement('h1', '', 'RHINE LAB'), textElement('p', '', 'RESEARCH ARCHIVE'), textElement('span', 'brand-caption', '莱茵生命 / 本地研究档案'));
   scene.append(header);
+  if (controls) {
+    const actions = document.createElement('div');
+    actions.className = 'archive-actions';
+    const label = document.createElement('label');
+    label.textContent = '分类 ';
+    const select = document.createElement('select');
+    select.className = 'category-select';
+    select.setAttribute('aria-label', '按分类筛选档案');
+    for (const category of ['', ...controls.categories]) {
+      const option = document.createElement('option');
+      option.value = category;
+      option.textContent = category || '全部';
+      select.append(option);
+    }
+    select.value = controls.category;
+    select.addEventListener('change', () => controls.onCategoryChange(select.value));
+    label.append(select);
+    actions.append(label);
+    if (controls.onUpload) {
+      const upload = document.createElement('button');
+      upload.type = 'button';
+      upload.className = 'upload-trigger';
+      upload.textContent = '上传档案';
+      upload.addEventListener('click', controls.onUpload);
+      actions.append(upload);
+    }
+    scene.append(actions);
+  }
   const ornament = document.createElement('div');
   ornament.className = 'orbit';
   ornament.setAttribute('aria-hidden', 'true');
   scene.append(ornament);
 
   if (!entries.length) {
-    const empty = textElement('div', 'archive-empty', '将文件放入 documents/');
-    empty.append(textElement('p', '', '支持 Markdown、Word 与 PDF · 添加后重新启动开发服务或重新构建'));
+    const filtered = Boolean(controls?.category);
+    const empty = textElement('div', 'archive-empty', filtered ? '该分类暂无档案' : '将文件放入 documents/');
+    if (filtered) {
+      const showAll = document.createElement('button');
+      showAll.type = 'button';
+      showAll.className = 'show-all';
+      showAll.textContent = '查看全部';
+      showAll.addEventListener('click', () => controls!.onCategoryChange(''));
+      empty.append(document.createElement('br'), showAll);
+    } else empty.append(textElement('p', '', '支持 Markdown、Word 与 PDF · 添加后重新启动开发服务或重新构建'));
     scene.append(empty);
     return scene;
   }

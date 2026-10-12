@@ -11,6 +11,11 @@ button { font: inherit; }
 .archive-brand h1 { margin: 0; font-size: 36px; font-weight: 300; letter-spacing: .36em; }
 .archive-brand p { font-size: 14px; letter-spacing: .42em; margin: 10px 0 25px; }
 .brand-caption { font-size: 10px; letter-spacing: .2em; color: #8c8d81; }
+.archive-actions { position: absolute; top: 7%; right: 5%; display: flex; align-items: center; gap: 14px; z-index: 2; color: #7d8173; font-size: 12px; letter-spacing: .08em; }
+.category-select, .upload-trigger { margin-left: 8px; padding: 9px 12px; border: 1px solid #c8c9b9; background: #fffdf7c9; color: #52665d; border-radius: 3px; }
+.category-select { min-width: 140px; }
+.upload-trigger { cursor: pointer; }
+.category-select:focus-visible, .upload-trigger:focus-visible, .show-all:focus-visible { outline: 2px solid #638d82; outline-offset: 3px; }
 .archive-viewport { position: relative; margin-top: 180px; padding: 280px 140px 65px; overflow-x: auto; overflow-y: hidden; min-height: 540px; scrollbar-width: thin; scrollbar-color: #b7b4a1 transparent; }
 .archive-row { position: relative; height: 285px; margin: 0 auto;  }
 .file-position { position: absolute; left: 0; top: 0; perspective: 2200px; }

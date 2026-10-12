@@ -9,7 +9,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ArchiveModel, createModelAssets } from './ArchiveModel.ts';
 import { MotionValue } from './ArchiveMotion.ts';
 import { archiveWave } from './ArchiveWave.ts';
-import { layoutFiles } from '../video-layout.ts';
+import { layoutFiles } from '../layout.ts';
 import type { ArchiveState } from '../archive-state.ts';
 import type { ArchiveEntry } from '../types.ts';
 

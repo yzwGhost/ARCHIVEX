@@ -1,23 +1,29 @@
-import { renderScene } from './scene.ts';
+import { renderScene, type ArchiveSceneElement } from './scene.ts';
 import { renderReader } from './reader.ts';
-import { categoryOptions, filterEntries } from './categories.ts';
+import { categoryOptions, entryCategory, filterEntries } from './categories.ts';
 import { renderUploadPanel } from './upload.ts';
-import type { ArchiveManifest, UploadCapabilities } from './types.ts';
+import type { ArchiveEntry, ArchiveManifest, UploadCapabilities } from './types.ts';
 import './style.css';
 
-const appStates = new WeakMap<HTMLElement, { generation: number; category: string; dispose?: () => void; uploadPanel?: HTMLElement }>();
+interface AppState {
+  generation: number;
+  category: string;
+  selectedId: string;
+  scene?: ArchiveSceneElement;
+  closeReader?: (restore?: boolean) => void;
+  uploadPanel?: HTMLElement;
+}
+const appStates = new WeakMap<HTMLElement, AppState>();
 
-export async function startArchive(app: HTMLElement) {
-  const state = appStates.get(app) ?? { generation: 0, category: '' };
+export async function startArchive(app: HTMLElement, shouldApply: () => boolean = () => true) {
+  const state = appStates.get(app) ?? { generation: 0, category: '', selectedId: '' };
   appStates.set(app, state);
   const generation = ++state.generation;
-  state.dispose?.();
-  state.dispose = undefined;
   try {
     const response = await fetch('/archive/manifest.json');
     if (!response.ok) throw new Error('manifest');
     const manifest: ArchiveManifest = await response.json();
-    if (generation !== state.generation) return;
+    if (generation !== state.generation || !shouldApply()) return;
     let uploadEnabled = false;
     if (app.ownerDocument.defaultView?.location.hostname === '127.0.0.1') {
       try {
@@ -26,59 +32,71 @@ export async function startArchive(app: HTMLElement) {
           const capability: UploadCapabilities = await capabilityResponse.json();
           uploadEnabled = capability.enabled === true;
         }
-      } catch { /* A static site has no upload API. */ }
+      } catch { /* Static hosting has no upload API. */ }
     }
-    if (generation !== state.generation) return;
-    const render = () => {
-      const categories = categoryOptions(manifest.entries);
-      if (state.category && !categories.includes(state.category)) state.category = '';
-      let active = false;
-      let scene: HTMLElement;
-      scene = renderScene(filterEntries(manifest.entries, state.category), (entry, trigger) => {
-        if (active || generation !== state.generation || !scene.isConnected) return;
-        active = true;
-        trigger.classList.add('is-selected');
-        scene.classList.add('is-extracting');
-        const timer = setTimeout(() => {
-          scene.classList.add('is-reading');
-          const reader = renderReader(entry, close);
-          app.append(reader);
-          reader.querySelector<HTMLButtonElement>('.reader-close')!.focus();
-        }, 650);
+    if (generation !== state.generation || !shouldApply()) return;
+    const categories = categoryOptions(manifest.entries);
+    if (state.category && !categories.includes(state.category)) state.category = '';
+    const render = (openId?: string) => {
+      state.closeReader?.(false);
+      state.scene?.dispose();
+      const visible = filterEntries(manifest.entries, state.category);
+      let scene: ArchiveSceneElement;
+      const onRead = (entry: ArchiveEntry, trigger: HTMLButtonElement) => {
+        if (state.scene !== scene || !scene.isConnected || state.closeReader || state.uploadPanel?.isConnected) return;
+        scene.setReading(true);
         scene.setAttribute('inert', '');
-        const close = (restoreFocus = true) => {
-          clearTimeout(timer);
-          app.querySelector('.archive-reader')?.remove();
-          scene.classList.remove('is-extracting', 'is-reading');
+        const close = (restore = true) => {
+          reader.remove();
           scene.removeAttribute('inert');
-          trigger.classList.remove('is-selected');
+          scene.setReading(false);
           document.removeEventListener('keydown', onKey);
-          active = false;
-          state.dispose = undefined;
-          if (restoreFocus && trigger.isConnected) trigger.focus();
+          if (state.closeReader === close) state.closeReader = undefined;
+          if (restore && trigger.isConnected) trigger.focus();
         };
+        const reader = renderReader(entry, close);
         const onKey = (event: KeyboardEvent) => {
-          if (event.key === 'Escape') { event.preventDefault(); close(); }
+          if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); close(); }
+          if (event.key === 'Tab') {
+            const items = Array.from(reader.querySelectorAll<HTMLElement>('button,a[href],iframe,[tabindex="0"]'));
+            const first = items[0], last = items[items.length - 1];
+            if (first && last && event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (first && last && !event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+          }
         };
+        state.closeReader = close;
         document.addEventListener('keydown', onKey);
-        state.dispose = () => close(false);
-      }, {
+        app.append(reader);
+        reader.querySelector<HTMLButtonElement>('.reader-close')!.focus();
+      };
+      scene = renderScene(visible, onRead, {
+        allEntries: manifest.entries,
         category: state.category,
         categories,
+        selectedId: state.selectedId,
         onCategoryChange: category => { state.category = category; render(); },
+        onLocate: id => {
+          const entry = manifest.entries.find(item => item.id === id);
+          if (!entry) return;
+          state.category = entryCategory(entry);
+          state.selectedId = id;
+          render(id);
+        },
+        onSelectionChange: id => { state.selectedId = id; },
         onUpload: uploadEnabled ? () => {
+          if (state.uploadPanel?.isConnected) return;
           scene.setAttribute('inert', '');
           const panel = renderUploadPanel({
             categories,
             onClose: () => {
               panel.remove();
               if (state.uploadPanel === panel) state.uploadPanel = undefined;
-              if (!state.uploadPanel?.isConnected) app.querySelector('.archive-scene')?.removeAttribute('inert');
-              app.querySelector<HTMLButtonElement>('.upload-trigger')?.focus();
+              state.scene?.removeAttribute('inert');
+              state.scene?.querySelector<HTMLButtonElement>('.upload-trigger')?.focus();
             },
             onComplete: async () => {
-              await startArchive(app);
-              if (state.uploadPanel?.isConnected) app.querySelector('.archive-scene')?.setAttribute('inert', '');
+              await startArchive(app, () => panel.isConnected);
+              if (panel.isConnected) state.scene?.setAttribute('inert', '');
             },
           });
           state.uploadPanel = panel;
@@ -86,11 +104,20 @@ export async function startArchive(app: HTMLElement) {
           panel.querySelector<HTMLInputElement>('input[type=file]')?.focus();
         } : undefined,
       });
+      state.scene = scene;
       app.replaceChildren(scene);
+      if (state.uploadPanel?.isConnected) scene.setAttribute('inert', '');
+      if (openId) {
+        const index = visible.findIndex(entry => entry.id === openId);
+        if (index >= 0) scene.state.open(index);
+      }
     };
     render();
   } catch {
-    if (generation !== state.generation) return;
+    if (generation !== state.generation || !shouldApply()) return;
+    state.closeReader?.(false);
+    state.scene?.dispose();
+    state.scene = undefined;
     const message = document.createElement('p');
     message.className = 'archive-empty';
     message.textContent = '档案目录读取失败。请重试，或重新启动开发服务 / 重新构建后刷新页面。';

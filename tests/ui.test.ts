@@ -23,49 +23,23 @@ test('each real entry has a safely rendered title and format label', () => {
   assert.match(scene.textContent!, /PDF/);
   assert.equal(scene.querySelector('研究记录'), null);
 });
-test('pointer and keyboard activation open the matching entry and trigger', () => {
+test('fallback file activation opens detail and reader for the matching entry', () => {
   const opened: unknown[][] = [];
   const scene = renderScene([entry], (...args) => opened.push(args));
-  const button = scene.querySelector('button')!;
-  button.click();
-  button.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-  button.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-  assert.equal(opened.length, 3);
-  for (const args of opened) assert.deepEqual(args, [entry, button]);
+  scene.querySelector<HTMLButtonElement>('.archive-file')!.click();
+  assert.equal(scene.state.mode, 'detail');
+  assert.match(scene.querySelector('.document-detail')!.textContent!, /2026-10-10/);
+  const trigger = scene.querySelector<HTMLButtonElement>('[data-action=read]')!;
+  trigger.click();
+  assert.deepEqual(opened, [[entry, trigger]]);
+  scene.dispose();
 });
-test('focus displays independent metadata and blur hides it', () => {
-  const scene = renderScene([entry], () => {});
-  const button = scene.querySelector('button')!;
-  button.dispatchEvent(new dom.window.FocusEvent('focus'));
-  const detail = scene.querySelector<HTMLElement>('.file-detail')!;
-  assert.equal(detail.hidden, false);
-  assert.match(detail.textContent!, /细胞实验摘要/);
-  assert.match(detail.textContent!, /2026-10-10/);
-  button.dispatchEvent(new dom.window.FocusEvent('blur'));
-  assert.equal(detail.hidden, true);
-});
-test('leaving a hovered file restores metadata for the focused file', () => {
+test('navigation updates the selected file metadata without inserting unsafe markup', () => {
   const scene = renderScene([entry, { ...entry, id: 'b', title: '第二份档案' }], () => {});
-  const [first, second] = scene.querySelectorAll('button');
-  first.dispatchEvent(new dom.window.FocusEvent('focus'));
-  second.dispatchEvent(new dom.window.Event('pointerenter'));
-  const detail = scene.querySelector<HTMLElement>('.file-detail')!;
-  assert.match(detail.textContent!, /第二份档案/);
-  second.dispatchEvent(new dom.window.Event('pointerleave'));
-  assert.equal(detail.hidden, false);
-  assert.match(detail.textContent!, /<研究记录>/);
-  first.dispatchEvent(new dom.window.FocusEvent('blur'));
-  assert.equal(detail.hidden, true);
-});
-test('blurring a file preserves metadata for a still hovered file', () => {
-  const scene = renderScene([entry, { ...entry, id: 'b', title: '第二份档案' }], () => {});
-  const [first, second] = scene.querySelectorAll('button');
-  first.dispatchEvent(new dom.window.FocusEvent('focus'));
-  second.dispatchEvent(new dom.window.Event('pointerenter'));
-  first.dispatchEvent(new dom.window.FocusEvent('blur'));
-  const detail = scene.querySelector<HTMLElement>('.file-detail')!;
-  assert.equal(detail.hidden, false);
-  assert.match(detail.textContent!, /第二份档案/);
+  scene.querySelector<HTMLButtonElement>('[data-action=next-file]')!.click();
+  assert.match(scene.querySelector('.file-detail')!.textContent!, /第二份档案/);
+  assert.equal(scene.querySelector('研究记录'), null);
+  scene.dispose();
 });
 
 test('reader previews converted HTML with downloads', async t => {
@@ -98,26 +72,22 @@ test('legacy Word and preview errors explain fallback and preserve downloads', a
   }
 });
 
-test('app extracts before reading, closes with Escape or return, and restores focus', async t => {
+test('app opens reader from detail, closes with Escape or return, and restores focus', async t => {
   const { startArchive } = await import('../src/main.ts');
   t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [{ ...entry, previewUrl: '/preview.html' }], warnings: [] })));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
   const app = document.createElement('main');
   document.body.replaceChildren(app);
   await startArchive(app);
-  const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  app.querySelector<HTMLButtonElement>('.archive-file')!.click();
+  const trigger = app.querySelector<HTMLButtonElement>('[data-action=read]')!;
   for (const closeWith of ['Escape', 'button']) {
     trigger.click();
-    assert.ok(trigger.classList.contains('is-selected'));
-    assert.equal(app.querySelector('[role=dialog]'), null);
-    t.mock.timers.tick(650);
     assert.ok(app.querySelector('[role=dialog]'));
     assert.equal(app.querySelector('.archive-scene')?.getAttribute('inert'), '');
     if (closeWith === 'Escape') document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     else app.querySelector<HTMLButtonElement>('.reader-close')!.click();
     assert.equal(app.querySelector('[role=dialog]'), null);
     assert.equal(document.activeElement, trigger);
-    assert.equal(trigger.classList.contains('is-selected'), false);
   }
 });
 
@@ -138,16 +108,15 @@ test('stale failed retry cannot replace recovered scene or reader', async t => {
   const { startArchive } = await import('../src/main.ts');
   const requests: Array<{ resolve: (value: Response) => void; reject: (error: Error) => void }> = [];
   t.mock.method(globalThis, 'fetch', () => new Promise<Response>((resolve, reject) => requests.push({ resolve, reject })));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
   const app = document.createElement('main');
   document.body.replaceChildren(app);
   const first = startArchive(app);
   const second = startArchive(app);
   requests[1].resolve(new Response(JSON.stringify({ entries: [entry], warnings: [] })));
   await second;
-  const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
+  app.querySelector<HTMLButtonElement>('.archive-file')!.click();
+  const trigger = app.querySelector<HTMLButtonElement>('[data-action=read]')!;
   trigger.click();
-  t.mock.timers.tick(650);
   requests[0].reject(new Error('stale failure'));
   await first;
   assert.ok(app.querySelector('[role=dialog]'));
@@ -165,19 +134,19 @@ test('failed HTML preview request explains failure and keeps download', async t 
   assert.equal(reader.querySelector('a[download]')?.getAttribute('href'), entry.sourceUrl);
 });
 
-test('reloading disposes an extraction timer and its Escape listener', async t => {
+test('reloading closes the reader and disposes its Escape listener', async t => {
   const { startArchive } = await import('../src/main.ts');
   t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [entry], warnings: [] })));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
   const app = document.createElement('main');
   document.body.replaceChildren(app);
   await startArchive(app);
   const oldTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
   oldTrigger.click();
+  app.querySelector<HTMLButtonElement>('[data-action=read]')!.click();
+  assert.ok(app.querySelector('.archive-reader'));
   await startArchive(app);
   const newTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
   newTrigger.focus();
-  t.mock.timers.tick(650);
   assert.equal(app.querySelector('[role=dialog]'), null);
   document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
   assert.equal(document.activeElement, newTrigger);
@@ -192,7 +161,6 @@ test('old scene cannot open a stale reader while manifest reload is pending', as
     if (++calls === 1) return new Response(JSON.stringify({ entries: [entry], warnings: [] }));
     return new Promise<Response>(resolve => { resolveReload = resolve; });
   });
-  t.mock.timers.enable({ apis: ['setTimeout'] });
   const app = document.createElement('main');
   document.body.replaceChildren(app);
   await startArchive(app);
@@ -203,23 +171,22 @@ test('old scene cannot open a stale reader while manifest reload is pending', as
   await reload;
   const newTrigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
   newTrigger.focus();
-  t.mock.timers.tick(650);
   assert.equal(app.querySelector('[role=dialog]'), null);
   document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape' }));
   assert.equal(document.activeElement, newTrigger);
-  assert.equal(oldTrigger.classList.contains('is-selected'), false);
+  assert.equal(oldTrigger.isConnected, false);
 });
 
 test('PDF interaction stays in app document so Escape closes and restores focus', async t => {
   const { startArchive } = await import('../src/main.ts');
   t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [{ ...entry, type: 'pdf' }], warnings: [] })));
-  t.mock.timers.enable({ apis: ['setTimeout'] });
   const app = document.createElement('main');
   document.body.replaceChildren(app);
   await startArchive(app);
   const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
   trigger.click();
-  t.mock.timers.tick(650);
+  const read = app.querySelector<HTMLButtonElement>('[data-action=read]')!;
+  read.click();
   assert.equal(app.querySelector('iframe'), null);
   const pages = app.querySelector<HTMLElement>('.reader-pdf')!;
   assert.ok(pages);
@@ -227,7 +194,7 @@ test('PDF interaction stays in app document so Escape closes and restores focus'
   pages.focus();
   pages.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.equal(app.querySelector('[role=dialog]'), null);
-  assert.equal(document.activeElement, trigger);
+  assert.equal(document.activeElement, read);
 });
 
 test('PDF network failure shows readable fallback and source download', async t => {
@@ -395,8 +362,9 @@ test('closing during upload leaves the scene interactive and preserves a subsequ
   panel.querySelector<HTMLButtonElement>('.upload-close')!.click();
   const trigger = app.querySelector<HTMLButtonElement>('.archive-file')!;
   trigger.click();
+  app.querySelector<HTMLButtonElement>('[data-action=read]')!.click();
   resolveUpload(new Response(JSON.stringify({ entry }), { status: 201 }));
-  await new Promise(resolve => setTimeout(resolve, 700));
+  await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(document.querySelector('.upload-panel'), null);
   assert.ok(app.querySelector('.archive-reader'));
   app.querySelector<HTMLButtonElement>('.reader-close')!.click();
@@ -429,4 +397,97 @@ test('closing during archive refresh does not leave the new scene inert', async 
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(document.querySelector('.upload-panel'), null);
   assert.equal(app.querySelector('.archive-scene')?.hasAttribute('inert'), false);
+});
+
+test('upload refresh preserves category and selected id in the video scene', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  const second = { ...entry, id: 'second', title: '第二份档案' };
+  let manifestReads = 0;
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    if (url === '/api/upload-capabilities') return new Response(JSON.stringify({ enabled: true }));
+    if (url === '/api/uploads') return new Response(JSON.stringify({ entry }), { status: 201 });
+    manifestReads++;
+    return new Response(JSON.stringify({ entries: [entry, second], warnings: [] }));
+  });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  const select = app.querySelector<HTMLSelectElement>('.category-select')!;
+  select.value = '实验';
+  select.dispatchEvent(new dom.window.Event('change'));
+  const scene = app.querySelector<HTMLElement & { state: { select(index: number): void } }>('.archive-scene')!;
+  scene.state.select(1);
+  app.querySelector<HTMLButtonElement>('.upload-trigger')!.click();
+  const panel = document.querySelector<HTMLElement>('.upload-panel')!;
+  Object.defineProperty(panel.querySelector<HTMLInputElement>('input[type=file]')!, 'files', { configurable: true, value: [new File(['A'], 'new.md')] });
+  panel.querySelector<HTMLButtonElement>('.upload-submit')!.click();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(manifestReads, 2);
+  assert.equal(app.querySelector<HTMLSelectElement>('.category-select')?.value, '实验');
+  assert.equal(app.querySelector<HTMLElement & { state: { entry: ArchiveEntry } }>('.archive-scene')?.state.entry.id, 'second');
+  panel.querySelector<HTMLButtonElement>('.upload-close')!.click();
+});
+
+test('closing upload cannot replace a later video reader', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  let resolveUpload!: (response: Response) => void;
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    if (url === '/api/upload-capabilities') return new Response(JSON.stringify({ enabled: true }));
+    if (url === '/api/uploads') return new Promise<Response>(resolve => { resolveUpload = resolve; });
+    return new Response(JSON.stringify({ entries: [entry], warnings: [] }));
+  });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  app.querySelector<HTMLButtonElement>('.upload-trigger')!.click();
+  const panel = document.querySelector<HTMLElement>('.upload-panel')!;
+  Object.defineProperty(panel.querySelector<HTMLInputElement>('input[type=file]')!, 'files', { configurable: true, value: [new File(['A'], 'new.md')] });
+  panel.querySelector<HTMLButtonElement>('.upload-submit')!.click();
+  panel.querySelector<HTMLButtonElement>('.upload-close')!.click();
+  const scene = app.querySelector<HTMLElement & { state: { open(): void } }>('.archive-scene')!;
+  scene.state.open();
+  app.querySelector<HTMLButtonElement>('[data-action=read]')!.click();
+  const reader = app.querySelector('.archive-reader');
+  resolveUpload(new Response(JSON.stringify({ entry }), { status: 201 }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.ok(reader?.isConnected);
+  app.querySelector<HTMLButtonElement>('.reader-close')!.click();
+  assert.equal(app.querySelector('.archive-scene')?.hasAttribute('inert'), false);
+});
+
+test('static and fallback video controls stay usable', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'https://example.test/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [entry], warnings: [] })));
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  assert.equal(app.querySelector('.upload-trigger'), null);
+  const scene = app.querySelector<HTMLElement>('.archive-scene')!;
+  assert.equal(scene.dataset.renderer, 'fallback');
+  const select = scene.querySelector<HTMLSelectElement>('.category-select')!;
+  select.value = '实验';
+  select.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(app.querySelector<HTMLSelectElement>('.category-select')?.value, '实验');
+  assert.ok(app.querySelector('.archive-file'));
+});
+
+test('reload disposes the previous video scene', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [entry], warnings: [] })));
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  const oldScene = app.querySelector<HTMLElement & { dispose(): void }>('.archive-scene')!;
+  const originalDispose = oldScene.dispose;
+  let disposals = 0;
+  oldScene.dispose = () => { disposals++; originalDispose(); };
+  await startArchive(app);
+  assert.equal(disposals, 1);
+  assert.equal(oldScene.isConnected, false);
 });

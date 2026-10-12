@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { renderVideoScene } from '../src/video-scene.ts';
+import { renderScene as renderVideoScene } from '../src/scene.ts';
 import type { ArchiveEntry } from '../src/types.ts';
 
 const dom = new JSDOM('<!doctype html><body></body>');

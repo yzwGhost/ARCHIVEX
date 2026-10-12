@@ -41,6 +41,31 @@
 .upload-panel button:disabled { opacity:.55; cursor:wait; }
 .upload-panel button:focus-visible, .upload-panel input:focus-visible, .upload-panel select:focus-visible { outline:2px solid #638d82; outline-offset:3px; }
 .upload-close { position:absolute; top:30px; right:38px; }
+.ui-icon { width:18px; height:18px; flex:none; stroke-width:1.75; vertical-align:middle; }
+.archive-toolbar [data-action=replay] .ui-icon, .directory-close .ui-icon { width:20px; height:20px; }
+.access-file .ui-icon { width:25px; height:25px; margin-left:60px; }
+.read-document .ui-icon, .file-navigation .ui-icon, .group-navigation .ui-icon { width:21px; height:21px; }
+.detail-actions button, .detail-actions a, .inspection-controls button, .reader-header a, .reader-close, .upload-panel button, .upload-trigger, .intro-overlay>button { display:inline-flex; align-items:center; gap:8px; }
+.detail-actions .ui-icon, .reader-header .ui-icon, .upload-panel .ui-icon { width:16px; height:16px; }
+.directory-result>.ui-icon { width:18px; height:18px; justify-self:end; }
+:root { --archive-control-bg:#f8f6ef; --archive-control-border:#b8beab; --archive-control-text:#252c21; --archive-control-hover:#e6eadf; }
+.archive-scene .button, .archive-reader .button, .upload-panel .button { font-family:inherit; font-weight:400; box-shadow:none; border-radius:2px; }
+.archive-scene .button.is-ghost, .archive-reader .button.is-ghost, .upload-panel .button.is-ghost { color:inherit; text-decoration:none; background:transparent; border-color:transparent; }
+.archive-scene .button.is-ghost:hover, .archive-reader .button.is-ghost:hover, .upload-panel .button.is-ghost:hover { color:#756343; text-decoration:none; }
+.archive-scene .directory-filters .button.is-ghost[aria-pressed=true] { background:#252c21; color:#f8f5eb; }
+.archive-scene .inspection-controls .button.is-ghost[aria-pressed=true] { background:rgba(214,195,150,.2); }
+.archive-scene .button.is-outlined, .upload-panel .button.is-outlined, .archive-empty .button.is-outlined { background:var(--archive-control-bg); border:1px solid var(--archive-control-border); color:var(--archive-control-text); }
+.archive-scene .button.is-outlined:hover, .upload-panel .button.is-outlined:hover, .archive-empty .button.is-outlined:hover { background:var(--archive-control-hover); color:var(--archive-control-text); }
+.archive-select.select, .upload-select.select { height:auto; max-width:100%; }
+.archive-select.select select, .upload-select.select select, .upload-panel .input, .directory-search.input { background:#fffef9; border:1px solid var(--archive-control-border); border-radius:2px; color:var(--archive-control-text); box-shadow:none; }
+.upload-select.select select, .upload-panel .input { height:42px; line-height:20px; }
+.upload-select.select select { padding-right:40px; }
+.archive-select.select::after, .upload-select.select::after { display:none; }
+.archive-select.select>.ui-icon, .upload-select.select>.ui-icon { position:absolute; right:11px; top:50%; width:14px; height:14px; transform:translateY(-50%); pointer-events:none; }
+.archive-select.select select:focus-visible, .upload-select.select select:focus-visible, .upload-panel .input:focus-visible, .directory-search.input:focus-visible { outline:2px solid #8a7445; outline-offset:3px; box-shadow:none; }
+.access-file.button, .read-document.button, .directory-result.button, .archive-file.button, .inspection-controls .button, .detail-actions .button { height:auto; }
+.directory-result.button, .archive-file.button { white-space:normal; }
+.archive-file.button { display:block; width:100%; justify-content:flex-start; }
 .upload-status { min-height:1.5em; margin:0; color:#52665d; font-size:12px; }
 .upload-results { margin:0; padding-left:20px; color:#73776e; font-size:12px; line-height:2; }
 @media(max-width:700px) {

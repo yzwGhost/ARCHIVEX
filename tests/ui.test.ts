@@ -4,11 +4,19 @@ import { JSDOM } from 'jsdom';
 import { renderScene } from '../src/scene.ts';
 import type { ArchiveEntry } from '../src/types.ts';
 import { registerHooks } from 'node:module';
-registerHooks({ load(url, context, nextLoad) { return url.endsWith('.css') ? { format: 'module', source: '', shortCircuit: true } : nextLoad(url, context); } });
+registerHooks({ load(url, context, nextLoad) { return /\.(?:css|scss)$/.test(url) ? { format: 'module', source: '', shortCircuit: true } : nextLoad(url, context); } });
 
 const dom = new JSDOM('<!doctype html><body></body>');
 globalThis.document = dom.window.document;
 const entry: ArchiveEntry = { id: 'a', relativePath: 'a.md', title: '<研究记录>', summary: '细胞实验摘要', date: '2026-10-10', category: '实验', type: 'md', sourceUrl: '/archive/a.md' };
+
+test('reader return and download controls use decorative SVG icons', async () => {
+  const { renderReader } = await import('../src/reader.ts');
+  const reader = renderReader({ ...entry, type: 'doc' }, () => {});
+  assert.ok(reader.querySelector('.reader-close svg[aria-hidden="true"]'));
+  assert.ok(reader.querySelector('.reader-header a[download] svg[aria-hidden="true"]'));
+  assert.match(reader.querySelector('.reader-close')!.textContent!, /返回档案/);
+});
 
 test('empty scene explains where to add files without fake files', () => {
   const scene = renderScene([], () => {});

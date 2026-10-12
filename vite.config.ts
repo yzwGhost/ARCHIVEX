@@ -7,6 +7,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const documentsDir = path.join(root, 'documents');
 
 export default defineConfig({
+  css: { preprocessorOptions: { scss: { quietDeps: true } } },
   server: { host: '127.0.0.1' },
   preview: { host: '127.0.0.1' },
   plugins: [{

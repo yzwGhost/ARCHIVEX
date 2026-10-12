@@ -1,3 +1,5 @@
+import { icon, setIconLabel } from './icons.ts';
+
 interface UploadPanelOptions {
   categories: string[];
   onClose: () => void;
@@ -23,8 +25,8 @@ export function renderUploadPanel({ categories, onClose, onComplete }: UploadPan
   heading.textContent = '上传档案';
   const close = document.createElement('button');
   close.type = 'button';
-  close.className = 'upload-close';
-  close.textContent = '关闭';
+  close.className = 'button is-ghost upload-close';
+  setIconLabel(close, 'close', '关闭');
   close.addEventListener('click', closePanel);
   const fileLabel = document.createElement('label');
   fileLabel.textContent = '选择本地文件';
@@ -32,6 +34,7 @@ export function renderUploadPanel({ categories, onClose, onComplete }: UploadPan
   files.type = 'file';
   files.multiple = true;
   files.accept = '.md,.docx,.pdf,.doc';
+  files.className = 'upload-file';
   fileLabel.append(files);
   const categoryLabel = document.createElement('label');
   categoryLabel.textContent = '分类';
@@ -43,18 +46,21 @@ export function renderUploadPanel({ categories, onClose, onComplete }: UploadPan
     option.textContent = name || '未分类';
     category.append(option);
   }
-  categoryLabel.append(category);
+  const categoryFrame = document.createElement('span');
+  categoryFrame.className = 'select upload-select';
+  categoryFrame.append(category, icon('chevron-down'));
+  categoryLabel.append(categoryFrame);
   const newCategoryLabel = document.createElement('label');
   newCategoryLabel.textContent = '或填写新分类';
   const newCategory = document.createElement('input');
   newCategory.type = 'text';
-  newCategory.className = 'upload-new-category';
+  newCategory.className = 'input upload-new-category';
   newCategory.maxLength = 60;
   newCategoryLabel.append(newCategory);
   const submit = document.createElement('button');
   submit.type = 'button';
-  submit.className = 'upload-submit';
-  submit.textContent = '开始上传';
+  submit.className = 'button is-outlined upload-submit';
+  setIconLabel(submit, 'upload', '开始上传');
   const status = document.createElement('p');
   status.className = 'upload-status';
   status.setAttribute('role', 'status');

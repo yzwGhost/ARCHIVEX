@@ -1,5 +1,6 @@
 import { ArchiveState, searchEntries } from './archive-state.ts';
 import { categoryOptions } from './categories.ts';
+import { hydrateIcons, setIconLabel, icon } from './icons.ts';
 import type { ArchiveEntry } from './types.ts';
 import type { ArchiveWorld } from './scene/ArchiveWorld.ts';
 
@@ -48,13 +49,16 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     }
     select.value = controls.category;
     select.addEventListener('change', () => controls.onCategoryChange(select.value));
-    label.append(select);
+    const selectFrame = document.createElement('span');
+    selectFrame.className = 'select archive-select';
+    selectFrame.append(select, icon('chevron-down'));
+    label.append(selectFrame);
     container.append(label);
     if (controls.onUpload) {
       const upload = document.createElement('button');
       upload.type = 'button';
-      upload.className = 'upload-trigger';
-      upload.textContent = '上传档案';
+      upload.className = 'button is-outlined upload-trigger';
+      setIconLabel(upload, 'upload', '上传档案');
       upload.addEventListener('click', controls.onUpload);
       container.append(upload);
     }
@@ -74,7 +78,7 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     if (controls?.category) {
       const showAll = document.createElement('button');
       showAll.type = 'button';
-      showAll.className = 'show-all';
+      showAll.className = 'button is-outlined show-all';
       showAll.textContent = '查看全部';
       showAll.addEventListener('click', () => controls.onCategoryChange(''));
       empty.append(document.createElement('br'), showAll);
@@ -90,36 +94,37 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     <div class="archive-world"></div><div class="scene-vignette" aria-hidden="true"></div>
     <div class="archive-interface">
       <header class="archive-brand"><h1>RHINE LAB</h1><p>SYNTHESIZE INFORMATION</p><div>ANALYSIS <strong>OS</strong></div></header>
-      <nav class="archive-toolbar" aria-label="档案工具"><button data-action="index"><span aria-hidden="true">⌕</span> ARCHIVE INDEX <kbd>/</kbd></button><button data-action="saved">+ SAVED <span data-field="saved-count">00</span></button><button data-action="replay" aria-label="重播开场动画" title="重播开场动画">◷</button></nav>
-      <button class="archive-back" data-action="back">← <span>返回档案阵列</span><kbd>ESC</kbd></button>
+      <nav class="archive-toolbar" aria-label="档案工具"><button class="button is-ghost" data-action="index"><span data-icon="search"></span> ARCHIVE INDEX <kbd>/</kbd></button><button class="button is-ghost" data-action="saved"><span data-icon="plus"></span> SAVED <span data-field="saved-count">00</span></button><button class="button is-ghost" data-action="replay" aria-label="重播开场动画" title="重播开场动画"><span data-icon="replay"></span></button></nav>
+      <button class="button is-ghost archive-back" data-action="back"><span data-icon="arrow-left"></span><span>返回档案阵列</span><kbd>ESC</kbd></button>
       <aside class="file-detail">
         <p class="eyebrow">INTERNAL DATABASE <i>/</i> <span data-field="category"></span></p>
         <h2>FILE NUMBER: <span data-field="code"></span></h2>
         <div class="detail-rule"><span data-field="title"></span><small>REFERENCE AREA</small></div>
         <p class="overview-summary" data-field="summary"></p>
-        <button class="access-file" data-action="open">ACCESS FILE <span>→</span></button>
+        <button class="button is-ghost access-file" data-action="open">ACCESS FILE <span data-icon="arrow-right"></span></button>
       </aside>
       <section class="document-detail" aria-label="档案详情">
         <p class="eyebrow">INTERNAL DATABASE / RECORD DETAIL</p>
         <h2 data-field="code"></h2><h3 data-field="title"></h3>
         <dl class="record-meta"><div><dt>ARCHIVE DATE</dt><dd data-field="date"></dd></div><div><dt>FILE FORMAT</dt><dd data-field="type"></dd></div><div><dt>CATEGORY</dt><dd data-field="category"></dd></div><div><dt>STATUS</dt><dd>已归档 / ARCHIVED</dd></div></dl>
         <div class="record-overview"><p class="eyebrow">01 / OVERVIEW</p><p data-field="summary"></p></div>
-        <button class="read-document" data-action="read">阅读档案正文 <span>↗</span></button>
-        <div class="detail-actions"><button data-action="save">+ 收藏档案</button><button data-action="inspect">360° 检视</button><a data-field="download" download>下载原文件 ↓</a></div>
+        <button class="button is-ghost read-document" data-action="read">阅读档案正文 <span data-icon="arrow-up-right"></span></button>
+        <div class="detail-actions"><button class="button is-ghost" data-action="save"><span data-icon="plus"></span>收藏档案</button><button class="button is-ghost" data-action="inspect"><span data-icon="inspect"></span>360° 检视</button><a data-field="download" download><span data-icon="download"></span>下载原文件</a></div>
         <p class="save-status" role="status"></p>
       </section>
       <section class="inspection-label" aria-label="三维检视"><p class="eyebrow">ARCHIVE OBJECT / 360° VIEW</p><h2 data-field="code"></h2><p data-field="title"></p><span>拖动旋转 · 滚轮缩放</span></section>
       <aside class="assembly-legend"><p class="eyebrow">STRUCTURE ANALYSIS</p><ol><li>透明防护封面</li><li>固定件 / 金属铆钉</li><li>内部资料层</li><li>档案背板</li></ol></aside>
-      <div class="inspection-controls"><button data-action="explode">展开档案结构 <span>↔</span></button><button data-action="reset">重置视角 ↺</button></div>
+      <div class="inspection-controls"><button class="button is-ghost" data-action="explode"><span data-icon="expand"></span>展开档案结构</button><button class="button is-ghost" data-action="reset"><span data-icon="replay"></span>重置视角</button></div>
       <footer class="archive-footer">
         <div class="file-counter"><small>ARCHIVE / SELECT</small><div><strong data-field="position"></strong><i>/</i><span data-field="group-length"></span></div></div>
-        <nav class="file-navigation" aria-label="组内档案"><button data-action="previous-file" aria-label="上一份档案">↑</button><div class="file-ticks"></div><button data-action="next-file" aria-label="下一份档案">↓</button></nav>
-        <nav class="group-navigation" aria-label="档案分组"><button data-action="previous-group" aria-label="上一组档案">←</button><div><small data-field="group"></small><span data-field="category"></span></div><button data-action="next-group" aria-label="下一组档案">→</button></nav>
+        <nav class="file-navigation" aria-label="组内档案"><button class="button is-ghost" data-action="previous-file" aria-label="上一份档案"><span data-icon="arrow-up"></span></button><div class="file-ticks"></div><button class="button is-ghost" data-action="next-file" aria-label="下一份档案"><span data-icon="arrow-down"></span></button></nav>
+        <nav class="group-navigation" aria-label="档案分组"><button class="button is-ghost" data-action="previous-group" aria-label="上一组档案"><span data-icon="arrow-left"></span></button><div><small data-field="group"></small><span data-field="category"></span></div><button class="button is-ghost" data-action="next-group" aria-label="下一组档案"><span data-icon="arrow-right"></span></button></nav>
         <div class="powered">POWERED BY <strong>RHINE LAB</strong><b>━</b></div>
       </footer>
     </div>
     <div class="fallback-files"><p>档案列表 · 当前设备使用简洁视图</p><div class="file-list"></div></div>
-    <div class="intro-overlay" hidden><div class="intro-mark" aria-hidden="true">∞</div><p>RHINE LAB <span>/</span> ARCHIVE SYSTEM</p><div class="intro-line"></div><button data-action="skip">跳过开场 →</button></div>`;
+    <div class="intro-overlay" hidden><div class="intro-mark" aria-hidden="true">∞</div><p>RHINE LAB <span>/</span> ARCHIVE SYSTEM</p><div class="intro-line"></div><button class="button is-ghost" data-action="skip">跳过开场 <span data-icon="arrow-right"></span></button></div>`;
+  hydrateIcons(root);
   addControls(root.querySelector('.archive-toolbar')!);
   const ui = root.querySelector<HTMLElement>('.archive-interface')!;
   const worldContainer = root.querySelector<HTMLElement>('.archive-world')!;
@@ -134,7 +139,7 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
   };
   const fileList = root.querySelector('.file-list')!;
   entries.forEach((entry, index) => {
-    const button = document.createElement('button'); button.className = 'archive-file'; button.dataset.entryId = entry.id;
+    const button = document.createElement('button'); button.className = 'button is-ghost archive-file'; button.dataset.entryId = entry.id;
     button.textContent = `${state.codeFor(entry)}  /  ${entry.title}  ·  ${entry.type.toUpperCase()}`;
     button.addEventListener('click', () => { if (!disposed) state.open(index); }); fileList.append(button);
   });
@@ -162,7 +167,8 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     restoreFocus = document.activeElement as HTMLElement;
     directory = document.createElement('section'); directory.className = 'archive-directory';
     directory.setAttribute('role', 'dialog'); directory.setAttribute('aria-modal', 'true'); directory.setAttribute('aria-label', state.overlay === 'saved' ? '已收藏档案' : '档案目录');
-    directory.innerHTML = '<div class="directory-paper"><header><div><p class="eyebrow">RHINE LAB / ARCHIVE SYSTEM</p><h2></h2></div><button class="directory-close" aria-label="关闭目录">✕</button></header><label class="search-label">搜索档案编号、标题或摘要<input class="directory-search" placeholder="SEARCH / 输入档案编号或关键词" type="search"></label><div class="directory-filters"></div><p class="directory-count" role="status"></p><div class="directory-results"></div><footer>INTERNAL DATABASE <span>ESC / CLOSE</span></footer></div>';
+    directory.innerHTML = '<div class="directory-paper"><header><div><p class="eyebrow">RHINE LAB / ARCHIVE SYSTEM</p><h2></h2></div><button class="button is-ghost directory-close" aria-label="关闭目录"><span data-icon="close"></span></button></header><label class="search-label">搜索档案编号、标题或摘要<input class="input directory-search" placeholder="SEARCH / 输入档案编号或关键词" type="search"></label><div class="directory-filters"></div><p class="directory-count" role="status"></p><div class="directory-results"></div><footer>INTERNAL DATABASE <span>ESC / CLOSE</span></footer></div>';
+    hydrateIcons(directory);
     directory.querySelector('h2')!.textContent = state.overlay === 'saved' ? 'SAVED ARCHIVES' : 'ARCHIVE INDEX';
     let category = '';
     const input = directory.querySelector<HTMLInputElement>('input')!;
@@ -173,17 +179,17 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
       directory!.querySelector('.directory-count')!.textContent = `${pad(matches.length)} RECORDS / ${state.overlay === 'saved' ? '已收藏' : '检索结果'}`;
       if (!matches.length) { const p = document.createElement('p'); p.className = 'directory-empty'; p.textContent = state.overlay === 'saved' && !input.value ? '暂无收藏，打开档案后点击“收藏档案”。' : '未找到匹配档案，请尝试其他关键词。'; results.append(p); }
       matches.forEach(entry => {
-        const index = entries.findIndex(item => item.id === entry.id), button = document.createElement('button'); button.className = 'directory-result';
+        const index = entries.findIndex(item => item.id === entry.id), button = document.createElement('button'); button.className = 'button is-ghost directory-result';
         const code = document.createElement('span'); code.textContent = state.codeFor(entry);
         const title = document.createElement('strong'); title.textContent = entry.title;
         const meta = document.createElement('small'); meta.textContent = `${entry.type.toUpperCase()} / ${entry.date?.slice(0, 10) || '—'}`;
-        const arrow = document.createElement('span'); arrow.textContent = '↗'; button.append(code, title, meta, arrow);
+        button.append(code, title, meta, icon('arrow-up-right'));
         button.addEventListener('click', () => { if (index >= 0) state.open(index); else controls?.onLocate(entry.id); }); results.append(button);
       });
     };
     const filters = directory.querySelector('.directory-filters')!;
     ['', ...categoryOptions(state.allEntries)].forEach(value => {
-      const button = document.createElement('button'); button.textContent = value || '全部'; button.setAttribute('aria-pressed', String(!value));
+      const button = document.createElement('button'); button.className = 'button is-ghost'; button.textContent = value || '全部'; button.setAttribute('aria-pressed', String(!value));
       button.addEventListener('click', () => { category = value; filters.querySelectorAll('button').forEach(el => el.setAttribute('aria-pressed', String(el === button))); refresh(); }); filters.append(button);
     });
     input.addEventListener('input', refresh); directory.querySelector('button')!.addEventListener('click', () => state.setOverlay(null));
@@ -202,16 +208,16 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     field('saved-count', pad(state.saved.size)); field('position', pad(state.selected % 8 + 1)); field('group-length', pad(state.groupLength));
     field('group', `COLUMN ${pad(state.group + 1)} / ${pad(state.groupCount)}`);
     const download = root.querySelector<HTMLAnchorElement>('[data-field=download]')!; download.href = state.entry.sourceUrl; download.download = state.entry.relativePath.split('/').pop()!;
-    action('save').textContent = state.saved.has(state.entry.id) ? '✓ 已收藏' : '+ 收藏档案'; action('save').setAttribute('aria-pressed', String(state.saved.has(state.entry.id)));
+    setIconLabel(action('save'), state.saved.has(state.entry.id) ? 'check' : 'plus', state.saved.has(state.entry.id) ? '已收藏' : '收藏档案'); action('save').setAttribute('aria-pressed', String(state.saved.has(state.entry.id)));
     root.querySelector('.save-status')!.textContent = !state.storageAvailable && state.saved.size ? '收藏保留在本次会话中（浏览器存储不可用）' : '';
-    action('explode').textContent = state.exploded ? '收合档案结构 →←' : '展开档案结构 ↔'; action('explode').setAttribute('aria-pressed', String(state.exploded));
+    setIconLabel(action('explode'), state.exploded ? 'shrink' : 'expand', state.exploded ? '收合档案结构' : '展开档案结构'); action('explode').setAttribute('aria-pressed', String(state.exploded));
     action('back').querySelector('span')!.textContent = state.mode === 'inspect' ? '返回档案详情' : '返回档案阵列';
     const ticks = root.querySelector('.file-ticks')!;
     const tickHadFocus = ticks.contains(document.activeElement);
     if (ticks.children.length !== state.groupLength) {
       ticks.replaceChildren();
       for (let index = 0; index < state.groupLength; index++) {
-        const button = document.createElement('button'); button.setAttribute('aria-label', `选择本组第 ${index + 1} 份档案`);
+        const button = document.createElement('button'); button.className = 'button is-ghost'; button.setAttribute('aria-label', `选择本组第 ${index + 1} 份档案`);
         button.addEventListener('click', () => state.select(state.group * 8 + index)); ticks.append(button);
       }
     }

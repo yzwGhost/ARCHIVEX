@@ -9,6 +9,30 @@ const dom = new JSDOM('<!doctype html><body></body>');
 globalThis.document = dom.window.document;
 const entry: ArchiveEntry = { id: 'record-a', relativePath: 'a.md', title: '研究记录', summary: '摘要', date: '2026-10-10', category: '研究', type: 'md', sourceUrl: '/archive/a.md' };
 
+test('scene controls use accessible SVG icons through state changes and overlays', () => {
+  const scene = renderVideoScene([entry], () => {});
+  document.body.replaceChildren(scene);
+  const icon = (selector: string) => scene.querySelector(`${selector} svg[aria-hidden="true"]`);
+  for (const selector of ['[data-action=index]', '[data-action=replay]', '[data-action=back]', '[data-action=open]', '[data-action=previous-file]', '[data-action=next-group]', '.intro-overlay [data-action=skip]']) {
+    assert.ok(icon(selector), `${selector} should contain a decorative SVG`);
+  }
+  assert.equal(scene.querySelector<HTMLButtonElement>('[data-action=replay]')?.getAttribute('aria-label'), '重播开场动画');
+  scene.state.open();
+  assert.ok(icon('[data-action=save]'));
+  scene.querySelector<HTMLButtonElement>('[data-action=save]')!.click();
+  assert.ok(icon('[data-action=save]'), 'saving should preserve the icon');
+  assert.equal(scene.querySelector<HTMLButtonElement>('[data-action=save]')?.getAttribute('aria-pressed'), 'true');
+  scene.querySelector<HTMLButtonElement>('[data-action=inspect]')!.click();
+  scene.querySelector<HTMLButtonElement>('[data-action=explode]')!.click();
+  assert.ok(icon('[data-action=explode]'), 'collapsing should preserve the icon');
+  scene.state.back();
+  scene.state.back();
+  scene.querySelector<HTMLButtonElement>('[data-action=index]')!.click();
+  assert.ok(icon('.directory-close'));
+  assert.ok(icon('.directory-result'));
+  scene.dispose();
+});
+
 test('video scene opens the selected real file', () => {
   const opened: string[] = [];
   const scene = renderVideoScene([entry], item => opened.push(item.id));

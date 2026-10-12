@@ -1,4 +1,5 @@
 import type { ArchiveEntry } from './types.ts';
+import { setIconLabel } from './icons.ts';
 
 export function renderReader(entry: ArchiveEntry, onClose: () => void): HTMLElement {
   const reader = document.createElement('section');
@@ -10,15 +11,15 @@ export function renderReader(entry: ArchiveEntry, onClose: () => void): HTMLElem
   header.className = 'reader-header';
   const close = document.createElement('button');
   close.type = 'button';
-  close.className = 'reader-close';
-  close.textContent = '← 返回档案';
+  close.className = 'button is-ghost reader-close';
+  setIconLabel(close, 'arrow-left', '返回档案');
   close.addEventListener('click', () => onClose());
   const title = document.createElement('h2');
   title.textContent = entry.title;
   const download = document.createElement('a');
   download.href = entry.sourceUrl;
   download.download = entry.relativePath.split('/').pop() ?? '';
-  download.textContent = `下载原文件 · ${entry.type.toUpperCase()}`;
+  setIconLabel(download, 'download', `下载原文件 · ${entry.type.toUpperCase()}`);
   header.append(close, title, download);
   reader.append(header);
   if (entry.error || entry.type === 'doc' || (entry.type !== 'pdf' && !entry.previewUrl)) {

@@ -3,6 +3,7 @@ import { renderReader } from './reader.ts';
 import { categoryOptions, entryCategory, filterEntries } from './categories.ts';
 import { renderUploadPanel } from './upload.ts';
 import type { ArchiveEntry, ArchiveManifest, UploadCapabilities } from './types.ts';
+import './bulma.scss';
 import './style.css';
 
 interface AppState {
@@ -124,6 +125,7 @@ export async function startArchive(app: HTMLElement, shouldApply: () => boolean 
     message.textContent = '档案目录读取失败。请重试，或重新启动开发服务 / 重新构建后刷新页面。';
     const retry = document.createElement('button');
     retry.type = 'button';
+    retry.className = 'button is-outlined';
     retry.textContent = '重新读取';
     retry.addEventListener('click', () => { void startArchive(app); });
     message.append(document.createElement('br'), retry);

@@ -289,3 +289,88 @@ test('a detached scene cannot open a reader after category change', async t => {
   t.mock.timers.tick(650);
   assert.equal(app.querySelector('[role=dialog]'), null);
 });
+
+test('upload panel sends selected files one by one and reports mixed results', async t => {
+  const { renderUploadPanel } = await import('../src/upload.ts');
+  const sent: Array<{ name: string; category: string }> = [];
+  let completed = 0;
+  t.mock.method(globalThis, 'fetch', async (_url: string, options: RequestInit) => {
+    const body = options.body as FormData;
+    sent.push({ name: (body.get('file') as File).name, category: String(body.get('category')) });
+    return new Response(JSON.stringify(sent.length === 1 ? { entry } : { code: 'conflict', message: '同名文件已存在。' }), { status: sent.length === 1 ? 201 : 409 });
+  });
+  const panel = renderUploadPanel({ categories: ['实验'], onClose: () => {}, onComplete: () => { completed++; } });
+  document.body.replaceChildren(panel);
+  const input = panel.querySelector<HTMLInputElement>('input[type=file]')!;
+  Object.defineProperty(input, 'files', { configurable: true, value: [new File(['A'], 'a.md'), new File(['B'], 'b.md')] });
+  const select = panel.querySelector<HTMLSelectElement>('.upload-category')!;
+  select.value = '实验';
+  panel.querySelector<HTMLButtonElement>('.upload-submit')!.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(sent, [{ name: 'a.md', category: '实验' }, { name: 'b.md', category: '实验' }]);
+  assert.equal(completed, 1);
+  assert.match(panel.textContent!, /同名文件已存在/);
+});
+
+test('upload panel requires files and supports a new category', async t => {
+  const { renderUploadPanel } = await import('../src/upload.ts');
+  let category = '';
+  t.mock.method(globalThis, 'fetch', async (_url: string, options: RequestInit) => {
+    category = String((options.body as FormData).get('category'));
+    return new Response(JSON.stringify({ entry }), { status: 201 });
+  });
+  const panel = renderUploadPanel({ categories: [], onClose: () => {}, onComplete: () => {} });
+  document.body.replaceChildren(panel);
+  const submit = panel.querySelector<HTMLButtonElement>('.upload-submit')!;
+  submit.click();
+  assert.equal(category, '');
+  Object.defineProperty(panel.querySelector<HTMLInputElement>('input[type=file]')!, 'files', { configurable: true, value: [new File(['A'], 'a.md')] });
+  panel.querySelector<HTMLInputElement>('.upload-new-category')!.value = '新分类';
+  submit.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(category, '新分类');
+});
+
+test('local capability controls whether archive shows upload entry', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  let enabled = true;
+  t.mock.method(globalThis, 'fetch', async (url: string) => new Response(JSON.stringify(url === '/archive/manifest.json' ? { entries: [entry], warnings: [] } : { enabled, maxFileBytes: 52428800 })));
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  assert.ok(app.querySelector('.upload-trigger'));
+  enabled = false;
+  await startArchive(app);
+  assert.equal(app.querySelector('.upload-trigger'), null);
+});
+
+test('upload completion refreshes archive once and keeps its category', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  let manifestReads = 0;
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    if (url === '/api/upload-capabilities') return new Response(JSON.stringify({ enabled: true, maxFileBytes: 52428800 }));
+    if (url === '/api/uploads') return new Response(JSON.stringify({ entry: { ...entry, id: 'new' }, warnings: [] }), { status: 201 });
+    manifestReads++;
+    return new Response(JSON.stringify({ entries: manifestReads === 1 ? [entry] : [entry, { ...entry, id: 'new' }], warnings: [] }));
+  });
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  const category = app.querySelector<HTMLSelectElement>('.category-select')!;
+  category.value = '实验';
+  category.dispatchEvent(new dom.window.Event('change'));
+  app.querySelector<HTMLButtonElement>('.upload-trigger')!.click();
+  const panel = document.querySelector<HTMLElement>('.upload-panel')!;
+  Object.defineProperty(panel.querySelector<HTMLInputElement>('input[type=file]')!, 'files', { configurable: true, value: [new File(['A'], 'new.md')] });
+  panel.querySelector<HTMLButtonElement>('.upload-submit')!.click();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(manifestReads, 2);
+  assert.equal(app.querySelector<HTMLSelectElement>('.category-select')?.value, '实验');
+  assert.equal(app.querySelectorAll('.archive-file').length, 2);
+  panel.querySelector<HTMLButtonElement>('.upload-close')!.click();
+  assert.equal(document.activeElement, app.querySelector('.upload-trigger'));
+});

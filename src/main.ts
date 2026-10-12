@@ -1,7 +1,8 @@
 import { renderScene } from './scene.ts';
 import { renderReader } from './reader.ts';
 import { categoryOptions, filterEntries } from './categories.ts';
-import type { ArchiveManifest } from './types.ts';
+import { renderUploadPanel } from './upload.ts';
+import type { ArchiveManifest, UploadCapabilities } from './types.ts';
 import './style.css';
 
 const appStates = new WeakMap<HTMLElement, { generation: number; category: string; dispose?: () => void }>();
@@ -16,6 +17,17 @@ export async function startArchive(app: HTMLElement) {
     const response = await fetch('/archive/manifest.json');
     if (!response.ok) throw new Error('manifest');
     const manifest: ArchiveManifest = await response.json();
+    if (generation !== state.generation) return;
+    let uploadEnabled = false;
+    if (app.ownerDocument.defaultView?.location.hostname === '127.0.0.1') {
+      try {
+        const capabilityResponse = await fetch('/api/upload-capabilities');
+        if (capabilityResponse.ok) {
+          const capability: UploadCapabilities = await capabilityResponse.json();
+          uploadEnabled = capability.enabled === true;
+        }
+      } catch { /* A static site has no upload API. */ }
+    }
     if (generation !== state.generation) return;
     const render = () => {
       const categories = categoryOptions(manifest.entries);
@@ -50,7 +62,28 @@ export async function startArchive(app: HTMLElement) {
         };
         document.addEventListener('keydown', onKey);
         state.dispose = () => close(false);
-      }, { category: state.category, categories, onCategoryChange: category => { state.category = category; render(); } });
+      }, {
+        category: state.category,
+        categories,
+        onCategoryChange: category => { state.category = category; render(); },
+        onUpload: uploadEnabled ? () => {
+          scene.setAttribute('inert', '');
+          const panel = renderUploadPanel({
+            categories,
+            onClose: () => {
+              panel.remove();
+              app.querySelector('.archive-scene')?.removeAttribute('inert');
+              app.querySelector<HTMLButtonElement>('.upload-trigger')?.focus();
+            },
+            onComplete: async () => {
+              await startArchive(app);
+              app.querySelector('.archive-scene')?.setAttribute('inert', '');
+            },
+          });
+          app.ownerDocument.body.append(panel);
+          panel.querySelector<HTMLInputElement>('input[type=file]')?.focus();
+        } : undefined,
+      });
       app.replaceChildren(scene);
     };
     render();

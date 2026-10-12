@@ -15,3 +15,13 @@ export interface ArchiveManifest {
   entries: ArchiveEntry[];
   warnings: string[];
 }
+
+export interface UploadCapabilities {
+  enabled: boolean;
+  maxFileBytes: number;
+}
+
+export interface UploadResult {
+  entry: ArchiveEntry;
+  warnings: string[];
+}

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
+import { watch } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Document, Packer, Paragraph } from 'docx';
@@ -156,4 +157,17 @@ test('failed incremental publish preserves the previous manifest', async t => {
   await assert.rejects(appendArchiveEntry({ documentsDir: f.documentsDir, outputDir: f.outputDir, relativePath: 'new.md' }));
   assert.equal(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8'), before);
   assert.equal(await readFile(path.join(f.outputDir, 'files', 'new.md'), 'utf8'), 'Block publishing');
+});
+
+test('incremental publish keeps temporary generation outside the served public directory', async t => {
+  const f = await fixture(t);
+  await f.build();
+  await writeFile(path.join(f.documentsDir, 'new.md'), '# New');
+  const seen = [];
+  const watcher = watch(path.dirname(f.outputDir), (_event, name) => seen.push(String(name)));
+  t.after(() => watcher.close());
+  const { appendArchiveEntry } = await import('../scripts/build-archive.mjs');
+  await appendArchiveEntry({ documentsDir: f.documentsDir, outputDir: f.outputDir, relativePath: 'new.md' });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(seen.some(name => name.startsWith('.archive-stage-')), false);
 });

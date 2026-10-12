@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile, mkdir, rm, copyFile, stat, lstat, mkdtemp, rename } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import MarkdownIt from 'markdown-it';
 import mammoth from 'mammoth';
@@ -141,7 +142,7 @@ export async function appendArchiveEntry({ documentsDir, outputDir, relativePath
   const manifestPath = path.join(output, 'manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   if (manifest.entries.some(entry => entry.relativePath === relativePath)) throw new Error('Archive entry already exists.');
-  const stage = await mkdtemp(path.join(path.dirname(output), '.archive-stage-'));
+  const stage = await mkdtemp(path.join(tmpdir(), 'archive-stage-'));
   const published = [];
   let manifestTemp;
   try {

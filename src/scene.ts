@@ -58,7 +58,7 @@ export function renderScene(entries: ArchiveEntry[], onOpen: (entry: ArchiveEntr
 
   if (!entries.length) {
     const filtered = Boolean(controls?.category);
-    const empty = textElement('div', 'archive-empty', filtered ? '该分类暂无档案' : '将文件放入 documents/');
+    const empty = textElement('div', 'archive-empty', filtered ? '该分类暂无档案' : controls?.onUpload ? '上传档案，或将文件放入 documents/' : '将文件放入 documents/');
     if (filtered) {
       const showAll = document.createElement('button');
       showAll.type = 'button';

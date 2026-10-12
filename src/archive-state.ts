@@ -1,4 +1,5 @@
 import type { ArchiveEntry } from './types.ts';
+import { entryCategory } from './categories.ts';
 
 export const GROUP_SIZE = 8;
 export const SAVED_KEY = 'rhine-archive:saved:v1';
@@ -9,12 +10,13 @@ export const fileCode = (index: number) => `X-${String(index + 1).padStart(3, '0
 
 export function searchEntries(entries: ArchiveEntry[], query = '', category = ''): ArchiveEntry[] {
   const normalized = query.trim().toLocaleLowerCase();
-  return entries.filter((entry, index) => (!category || entry.category === category) &&
+  return entries.filter((entry, index) => (!category || entryCategory(entry) === category) &&
     `${fileCode(index)} ${entry.title} ${entry.summary}`.toLocaleLowerCase().includes(normalized));
 }
 
 export class ArchiveState {
   readonly entries: ArchiveEntry[];
+  readonly allEntries: ArchiveEntry[];
   selected = 0;
   mode: ArchiveMode = 'overview';
   overlay: DirectoryMode = null;
@@ -26,18 +28,22 @@ export class ArchiveState {
   private listeners = new Set<() => void>();
   private clickedSelection: number | null = null;
 
-  constructor(entries: ArchiveEntry[], storage?: ArchiveStorage) {
+  constructor(entries: ArchiveEntry[], storage?: ArchiveStorage, options?: { allEntries?: ArchiveEntry[]; selectedId?: string }) {
     this.entries = entries;
+    this.allEntries = options?.allEntries ?? entries;
+    const selected = entries.findIndex(entry => entry.id === options?.selectedId);
+    if (selected >= 0) this.selected = selected;
     this.storage = storage;
     this.storageAvailable = Boolean(storage);
     if (storage) {
       try {
         const data: unknown = JSON.parse(storage.getItem(SAVED_KEY) ?? '[]');
-        if (Array.isArray(data)) this.saved = new Set(data.filter((id): id is string => typeof id === 'string' && entries.some(entry => entry.id === id)));
+        if (Array.isArray(data)) this.saved = new Set(data.filter((id): id is string => typeof id === 'string' && this.allEntries.some(entry => entry.id === id)));
       } catch { /* Invalid saved data starts a new session. */ }
     }
   }
   get entry() { return this.entries[this.selected]; }
+  codeFor(entry: ArchiveEntry) { return fileCode(this.allEntries.findIndex(item => item.id === entry.id)); }
   get group() { return Math.floor(this.selected / GROUP_SIZE); }
   get groupCount() { return Math.ceil(this.entries.length / GROUP_SIZE); }
   get groupLength() { return Math.min(GROUP_SIZE, this.entries.length - this.group * GROUP_SIZE); }

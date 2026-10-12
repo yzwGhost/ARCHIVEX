@@ -71,3 +71,18 @@ test('retargeting an in-flight motion starts from its current pose and reaches t
   motion.to(-2, 500, 500); assert.equal(motion.value(500), halfway);
   assert.equal(motion.value(1000), -2); assert.equal(motion.value(2000), -2);
 });
+
+test('filtered state keeps full archive codes and saved identities', () => {
+  const all = [entries[0], entries[8], entries[12]];
+  const storage = { getItem: () => JSON.stringify(['id-0']), setItem: () => {} };
+  const state = new ArchiveState([all[1]], storage, { allEntries: all, selectedId: 'id-8' });
+  assert.deepEqual(state.entries.map(item => item.id), ['id-8']);
+  assert.equal(state.entry.id, 'id-8');
+  assert.equal(state.codeFor(all[1]), 'X-002');
+  assert.deepEqual([...state.saved], ['id-0']);
+});
+
+test('directory category search treats empty metadata as uncategorized', () => {
+  const uncategorized = { ...entries[0], id: 'blank', category: '' };
+  assert.deepEqual(searchEntries([entries[0], uncategorized], '', '未分类').map(item => item.id), ['blank']);
+});

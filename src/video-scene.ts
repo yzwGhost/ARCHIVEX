@@ -1,4 +1,5 @@
-import { ArchiveState, fileCode, searchEntries } from './archive-state.ts';
+import { ArchiveState, searchEntries } from './archive-state.ts';
+import { categoryOptions } from './categories.ts';
 import type { ArchiveEntry } from './types.ts';
 import type { ArchiveWorld } from './scene/ArchiveWorld.ts';
 
@@ -8,22 +9,81 @@ export interface ArchiveSceneElement extends HTMLElement {
   setReading(value: boolean): void;
 }
 const pad = (value: number) => String(value).padStart(2, '0');
-export function renderVideoScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntry, trigger: HTMLButtonElement) => void): ArchiveSceneElement {
+interface SceneControls {
+  allEntries: ArchiveEntry[];
+  category: string;
+  categories: string[];
+  selectedId: string;
+  onCategoryChange: (category: string) => void;
+  onLocate: (id: string) => void;
+  onSelectionChange: (id: string) => void;
+  onUpload?: () => void;
+}
+
+export function renderVideoScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntry, trigger: HTMLButtonElement) => void, controls?: SceneControls): ArchiveSceneElement {
   const root = document.createElement('section') as ArchiveSceneElement;
   root.className = 'archive-scene'; root.setAttribute('aria-label', '莱茵生命研究档案');
   let storage: Storage | undefined;
   try { storage = document.defaultView?.localStorage; } catch { /* Session-only favorites remain available. */ }
-  const state = new ArchiveState(entries, storage); root.state = state;
+  const state = new ArchiveState(entries, storage, { allEntries: controls?.allEntries, selectedId: controls?.selectedId }); root.state = state;
   let world: ArchiveWorld | undefined, disposed = false, directory: HTMLElement | null = null;
   let restoreFocus: HTMLElement | null = null, lastOverlay: string | null = null;
   let introTimer: ReturnType<typeof setTimeout> | undefined;
   let previousMode = state.mode;
   let overviewFocus: HTMLElement | null = null;
+  let reportedId = state.entry?.id;
+  const addControls = (container: Element) => {
+    if (!controls) return;
+    const label = document.createElement('label');
+    label.className = 'scene-category-label';
+    label.textContent = '分类 ';
+    const select = document.createElement('select');
+    select.className = 'category-select';
+    select.setAttribute('aria-label', '按分类筛选档案');
+    for (const category of ['', ...controls.categories]) {
+      const option = document.createElement('option');
+      option.value = category;
+      option.textContent = category || '全部';
+      select.append(option);
+    }
+    select.value = controls.category;
+    select.addEventListener('change', () => controls.onCategoryChange(select.value));
+    label.append(select);
+    container.append(label);
+    if (controls.onUpload) {
+      const upload = document.createElement('button');
+      upload.type = 'button';
+      upload.className = 'upload-trigger';
+      upload.textContent = '上传档案';
+      upload.addEventListener('click', controls.onUpload);
+      container.append(upload);
+    }
+  };
   root.dispose = () => { disposed = true; world?.dispose(); clearTimeout(introTimer); document.removeEventListener('keydown', onKey); unsubscribe(); };
   root.setReading = value => { state.reading = value; state.notify(); };
   const unsubscribe = state.subscribe(update);
   if (!entries.length) {
-    root.innerHTML = '<header class="archive-brand"><h1>RHINE LAB</h1><p>ANALYSIS OS</p></header><div class="archive-empty">将文件放入 documents/<p>支持 Markdown、Word 与 PDF · 添加后重新启动开发服务或重新构建</p></div>';
+    root.innerHTML = '<header class="archive-brand"><h1>RHINE LAB</h1><p>ANALYSIS OS</p></header>';
+    const actions = document.createElement('nav');
+    actions.className = 'archive-toolbar';
+    addControls(actions);
+    root.append(actions);
+    const empty = document.createElement('div');
+    empty.className = 'archive-empty';
+    empty.textContent = controls?.category ? '该分类暂无档案' : '将文件放入 documents/';
+    if (controls?.category) {
+      const showAll = document.createElement('button');
+      showAll.type = 'button';
+      showAll.className = 'show-all';
+      showAll.textContent = '查看全部';
+      showAll.addEventListener('click', () => controls.onCategoryChange(''));
+      empty.append(document.createElement('br'), showAll);
+    } else {
+      const hint = document.createElement('p');
+      hint.textContent = '支持 Markdown、Word 与 PDF · 添加后重新启动开发服务或重新构建';
+      empty.append(hint);
+    }
+    root.append(empty);
     return root;
   }
   root.innerHTML = `
@@ -60,6 +120,7 @@ export function renderVideoScene(entries: ArchiveEntry[], onRead: (entry: Archiv
     </div>
     <div class="fallback-files"><p>档案列表 · 当前设备使用简洁视图</p><div class="file-list"></div></div>
     <div class="intro-overlay" hidden><div class="intro-mark" aria-hidden="true">∞</div><p>RHINE LAB <span>/</span> ARCHIVE SYSTEM</p><div class="intro-line"></div><button data-action="skip">跳过开场 →</button></div>`;
+  addControls(root.querySelector('.archive-toolbar')!);
   const ui = root.querySelector<HTMLElement>('.archive-interface')!;
   const worldContainer = root.querySelector<HTMLElement>('.archive-world')!;
   const field = (name: string, text: string) => root.querySelectorAll<HTMLElement>(`[data-field="${name}"]`).forEach(el => { el.textContent = text; });
@@ -74,7 +135,7 @@ export function renderVideoScene(entries: ArchiveEntry[], onRead: (entry: Archiv
   const fileList = root.querySelector('.file-list')!;
   entries.forEach((entry, index) => {
     const button = document.createElement('button'); button.className = 'archive-file'; button.dataset.entryId = entry.id;
-    button.textContent = `${fileCode(index)}  /  ${entry.title}  ·  ${entry.type.toUpperCase()}`;
+    button.textContent = `${state.codeFor(entry)}  /  ${entry.title}  ·  ${entry.type.toUpperCase()}`;
     button.addEventListener('click', () => { if (!disposed) state.open(index); }); fileList.append(button);
   });
   const operations: Record<string, () => void> = {
@@ -107,21 +168,21 @@ export function renderVideoScene(entries: ArchiveEntry[], onRead: (entry: Archiv
     const input = directory.querySelector<HTMLInputElement>('input')!;
     const results = directory.querySelector('.directory-results')!;
     const refresh = () => {
-      const matches = searchEntries(entries, input.value, category).filter(entry => state.overlay !== 'saved' || state.saved.has(entry.id));
+      const matches = searchEntries(state.allEntries, input.value, category).filter(entry => state.overlay !== 'saved' || state.saved.has(entry.id));
       results.replaceChildren();
       directory!.querySelector('.directory-count')!.textContent = `${pad(matches.length)} RECORDS / ${state.overlay === 'saved' ? '已收藏' : '检索结果'}`;
       if (!matches.length) { const p = document.createElement('p'); p.className = 'directory-empty'; p.textContent = state.overlay === 'saved' && !input.value ? '暂无收藏，打开档案后点击“收藏档案”。' : '未找到匹配档案，请尝试其他关键词。'; results.append(p); }
       matches.forEach(entry => {
-        const index = entries.indexOf(entry), button = document.createElement('button'); button.className = 'directory-result';
-        const code = document.createElement('span'); code.textContent = fileCode(index);
+        const index = entries.findIndex(item => item.id === entry.id), button = document.createElement('button'); button.className = 'directory-result';
+        const code = document.createElement('span'); code.textContent = state.codeFor(entry);
         const title = document.createElement('strong'); title.textContent = entry.title;
         const meta = document.createElement('small'); meta.textContent = `${entry.type.toUpperCase()} / ${entry.date?.slice(0, 10) || '—'}`;
         const arrow = document.createElement('span'); arrow.textContent = '↗'; button.append(code, title, meta, arrow);
-        button.addEventListener('click', () => state.open(index)); results.append(button);
+        button.addEventListener('click', () => { if (index >= 0) state.open(index); else controls?.onLocate(entry.id); }); results.append(button);
       });
     };
     const filters = directory.querySelector('.directory-filters')!;
-    ['', ...new Set(entries.map(entry => entry.category).filter(Boolean))].forEach(value => {
+    ['', ...categoryOptions(state.allEntries)].forEach(value => {
       const button = document.createElement('button'); button.textContent = value || '全部'; button.setAttribute('aria-pressed', String(!value));
       button.addEventListener('click', () => { category = value; filters.querySelectorAll('button').forEach(el => el.setAttribute('aria-pressed', String(el === button))); refresh(); }); filters.append(button);
     });
@@ -132,10 +193,11 @@ export function renderVideoScene(entries: ArchiveEntry[], onRead: (entry: Archiv
   }
   function update() {
     if (disposed || !entries.length) return;
+    if (state.entry.id !== reportedId) { reportedId = state.entry.id; controls?.onSelectionChange(reportedId); }
     const changedMode = previousMode !== state.mode;
     if (changedMode && previousMode === 'overview') overviewFocus = document.activeElement as HTMLElement;
     root.dataset.mode = state.mode; root.classList.toggle('has-directory', Boolean(state.overlay));
-    field('code', fileCode(state.selected)); field('title', state.entry.title); field('category', state.entry.category || '未分类');
+    field('code', state.codeFor(state.entry)); field('title', state.entry.title); field('category', state.entry.category || '未分类');
     field('date', state.entry.date?.slice(0, 10) || '—'); field('type', state.entry.type.toUpperCase()); field('summary', state.entry.summary || '此档案暂无摘要，打开正文查看完整资料。');
     field('saved-count', pad(state.saved.size)); field('position', pad(state.selected % 8 + 1)); field('group-length', pad(state.groupLength));
     field('group', `COLUMN ${pad(state.group + 1)} / ${pad(state.groupCount)}`);

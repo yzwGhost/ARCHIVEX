@@ -117,3 +117,43 @@ test('DOCX summaries separate paragraphs and decode entities into plain text', a
   const { entries: [entry] } = await f.build();
   assert.equal(entry.summary, 'First paragraph. Second & third <literal> paragraph.');
 });
+
+test('incremental publish keeps existing files and sorts the new entry', async t => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.documentsDir, 'old.md'), 'Earlier');
+  const first = await f.build();
+  await writeFile(path.join(f.documentsDir, 'new.md'), '# New');
+  const { appendArchiveEntry } = await import('../scripts/build-archive.mjs');
+  const { entry } = await appendArchiveEntry({ documentsDir: f.documentsDir, outputDir: f.outputDir, relativePath: 'new.md' });
+  const manifest = JSON.parse(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.entries.length, 2);
+  assert.ok(manifest.entries.some(item => item.id === first.entries[0].id));
+  assert.ok(manifest.entries.some(item => item.id === entry.id));
+  assert.equal(await readFile(path.join(f.outputDir, 'files/old.md'), 'utf8'), 'Earlier');
+  assert.equal(await readFile(path.join(f.outputDir, 'files/new.md'), 'utf8'), '# New');
+  assert.match(await readFile(path.join(f.outputDir, 'previews', `${entry.id}.html`), 'utf8'), /New/);
+});
+
+test('incremental corrupt DOCX stays downloadable with conversion error', async t => {
+  const f = await fixture(t);
+  await f.build();
+  await writeFile(path.join(f.documentsDir, 'broken.docx'), 'not a zip');
+  const { appendArchiveEntry } = await import('../scripts/build-archive.mjs');
+  const { entry } = await appendArchiveEntry({ documentsDir: f.documentsDir, outputDir: f.outputDir, relativePath: 'broken.docx' });
+  assert.ok(entry.error);
+  assert.equal(entry.previewUrl, undefined);
+  assert.equal(await readFile(path.join(f.outputDir, 'files/broken.docx'), 'utf8'), 'not a zip');
+});
+
+test('failed incremental publish preserves the previous manifest', async t => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.documentsDir, 'old.md'), 'Old');
+  await f.build();
+  const before = await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8');
+  await writeFile(path.join(f.documentsDir, 'new.md'), 'New');
+  await writeFile(path.join(f.outputDir, 'files', 'new.md'), 'Block publishing');
+  const { appendArchiveEntry } = await import('../scripts/build-archive.mjs');
+  await assert.rejects(appendArchiveEntry({ documentsDir: f.documentsDir, outputDir: f.outputDir, relativePath: 'new.md' }));
+  assert.equal(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8'), before);
+  assert.equal(await readFile(path.join(f.outputDir, 'files', 'new.md'), 'utf8'), 'Block publishing');
+});

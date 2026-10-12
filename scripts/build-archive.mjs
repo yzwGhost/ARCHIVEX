@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readdir, readFile, writeFile, mkdir, rm, copyFile, stat, lstat } from 'node:fs/promises';
+import { readdir, readFile, writeFile, mkdir, rm, copyFile, stat, lstat, mkdtemp, rename } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import MarkdownIt from 'markdown-it';
@@ -49,6 +50,57 @@ async function scan(directory, prefix = '') {
   return files.sort();
 }
 
+const sortEntries = entries => entries.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0) || (a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0));
+
+async function buildEntry(input, output, relativePath) {
+  const warnings = [];
+  const source = path.join(input, relativePath);
+  const type = path.extname(relativePath).slice(1).toLowerCase();
+  const id = createHash('sha256').update(relativePath).digest('hex');
+  const entry = {
+    id, relativePath, title: path.basename(relativePath, path.extname(relativePath)),
+    summary: type === 'pdf' ? 'PDF 文档，请打开预览或下载原文件。' : type === 'doc' ? '旧版 Word 文档，请下载后查看。' : '',
+    date: '', category: '未分类', type, sourceUrl: `/archive/files/${urlPath(relativePath)}`,
+  };
+  try {
+    entry.date = (await stat(source)).mtime.toISOString();
+    const destination = path.join(output, 'files', relativePath);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await copyFile(source, destination);
+    if (type === 'pdf') entry.previewUrl = entry.sourceUrl;
+    if (type === 'md' || type === 'docx') {
+      let html;
+      if (type === 'md') html = markdown.render(await readFile(source, 'utf8'));
+      else {
+        const conversion = await mammoth.convertToHtml({ path: source });
+        html = conversion.value;
+        warnings.push(...conversion.messages.map(message => `${relativePath}: ${message.message}`));
+      }
+      html = sanitizeHtml(html);
+      entry.summary = plainText(html).slice(0, 180);
+      await mkdir(path.join(output, 'previews'), { recursive: true });
+      await writeFile(path.join(output, 'previews', `${id}.html`), html, 'utf8');
+      entry.previewUrl = `/archive/previews/${id}.html`;
+    }
+  } catch (error) {
+    entry.error = `无法读取或转换文件：${error.message}`;
+    warnings.push(`${relativePath}: ${entry.error}`);
+  }
+  try {
+    const metadata = JSON.parse(await readFile(source.slice(0, -path.extname(source).length) + '.meta.json', 'utf8'));
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Metadata must be an object');
+    for (const field of ['title', 'summary', 'date', 'category']) {
+      if (metadata[field] === undefined) continue;
+      if (typeof metadata[field] !== 'string' || (field === 'date' && !Number.isFinite(Date.parse(metadata[field])))) {
+        warnings.push(`${relativePath}: invalid metadata field ${field}`);
+      } else entry[field] = metadata[field];
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') warnings.push(`${relativePath}: invalid metadata: ${error.message}`);
+  }
+  return { entry, warnings };
+}
+
 /** Build the archive in a dedicated output directory. Never pass an existing user-content directory. */
 export async function buildArchive({ documentsDir, outputDir }) {
   const input = path.resolve(documentsDir);
@@ -69,54 +121,58 @@ export async function buildArchive({ documentsDir, outputDir }) {
   try { files = await scan(input); }
   catch (error) { if (error.code === 'ENOENT') files = []; else throw error; }
   for (const relativePath of files) {
-    const source = path.join(input, relativePath);
-    const type = path.extname(relativePath).slice(1).toLowerCase();
-    const id = createHash('sha256').update(relativePath).digest('hex');
-    const entry = {
-      id, relativePath, title: path.basename(relativePath, path.extname(relativePath)),
-      summary: type === 'pdf' ? 'PDF 文档，请打开预览或下载原文件。' : type === 'doc' ? '旧版 Word 文档，请下载后查看。' : '',
-      date: '', category: '未分类', type, sourceUrl: `/archive/files/${urlPath(relativePath)}`,
-    };
-    try {
-      entry.date = (await stat(source)).mtime.toISOString();
-      const destination = path.join(output, 'files', relativePath);
-      await mkdir(path.dirname(destination), { recursive: true });
-      await copyFile(source, destination);
-      if (type === 'pdf') entry.previewUrl = entry.sourceUrl;
-      if (type === 'md' || type === 'docx') {
-        let html;
-        if (type === 'md') html = markdown.render(await readFile(source, 'utf8'));
-        else {
-          const conversion = await mammoth.convertToHtml({ path: source });
-          html = conversion.value;
-          manifest.warnings.push(...conversion.messages.map(message => `${relativePath}: ${message.message}`));
-        }
-        html = sanitizeHtml(html);
-        entry.summary = plainText(html).slice(0, 180);
-        await writeFile(path.join(output, 'previews', `${id}.html`), html, 'utf8');
-        entry.previewUrl = `/archive/previews/${id}.html`;
-      }
-    } catch (error) {
-      entry.error = `无法读取或转换文件：${error.message}`;
-      manifest.warnings.push(`${relativePath}: ${entry.error}`);
-    }
-    try {
-      const metadata = JSON.parse(await readFile(source.slice(0, -path.extname(source).length) + '.meta.json', 'utf8'));
-      if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Metadata must be an object');
-      for (const field of ['title', 'summary', 'date', 'category']) {
-        if (metadata[field] === undefined) continue;
-        if (typeof metadata[field] !== 'string' || (field === 'date' && !Number.isFinite(Date.parse(metadata[field])))) {
-          manifest.warnings.push(`${relativePath}: invalid metadata field ${field}`);
-        } else entry[field] = metadata[field];
-      }
-    } catch (error) {
-      if (error.code !== 'ENOENT') manifest.warnings.push(`${relativePath}: invalid metadata: ${error.message}`);
-    }
+    const { entry, warnings } = await buildEntry(input, output, relativePath);
     manifest.entries.push(entry);
+    manifest.warnings.push(...warnings);
   }
-  manifest.entries.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0) || (a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0));
+  sortEntries(manifest.entries);
   await writeFile(path.join(output, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
   return manifest;
+}
+
+export async function appendArchiveEntry({ documentsDir, outputDir, relativePath }) {
+  const input = path.resolve(documentsDir);
+  const output = path.resolve(outputDir);
+  const source = path.resolve(input, relativePath);
+  if (!supported.has(path.extname(relativePath).slice(1).toLowerCase()) || path.relative(input, source).startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error('Invalid archive path.');
+  }
+  await rejectLinkedAncestors(output);
+  const manifestPath = path.join(output, 'manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  if (manifest.entries.some(entry => entry.relativePath === relativePath)) throw new Error('Archive entry already exists.');
+  const stage = await mkdtemp(path.join(path.dirname(output), '.archive-stage-'));
+  const published = [];
+  let manifestTemp;
+  try {
+    const { entry, warnings } = await buildEntry(input, stage, relativePath);
+    const files = [relativePath];
+    for (const file of files) {
+      const destination = path.join(output, 'files', file);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await copyFile(path.join(stage, 'files', file), destination, constants.COPYFILE_EXCL);
+      published.push(destination);
+    }
+    if (entry.previewUrl && entry.type !== 'pdf') {
+      const destination = path.join(output, 'previews', `${entry.id}.html`);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await copyFile(path.join(stage, 'previews', `${entry.id}.html`), destination, constants.COPYFILE_EXCL);
+      published.push(destination);
+    }
+    manifest.entries.push(entry);
+    manifest.warnings.push(...warnings);
+    sortEntries(manifest.entries);
+    manifestTemp = path.join(output, `.manifest-${entry.id}.tmp`);
+    await writeFile(manifestTemp, JSON.stringify(manifest, null, 2), { flag: 'wx' });
+    await rename(manifestTemp, manifestPath);
+    return { entry, warnings };
+  } catch (error) {
+    await Promise.all(published.map(file => rm(file, { force: true })));
+    if (manifestTemp) await rm(manifestTemp, { force: true });
+    throw error;
+  } finally {
+    await rm(stage, { recursive: true, force: true });
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

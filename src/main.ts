@@ -106,6 +106,7 @@ export async function startArchive(app: HTMLElement, shouldApply: () => boolean 
       });
       state.scene = scene;
       app.replaceChildren(scene);
+      state.selectedId = scene.state.entry?.id ?? '';
       if (state.uploadPanel?.isConnected) scene.setAttribute('inert', '');
       if (openId) {
         const index = visible.findIndex(entry => entry.id === openId);

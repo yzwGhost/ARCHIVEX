@@ -241,7 +241,7 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     }
     if (!intro.hidden) return;
     const target = event.target as HTMLElement;
-    if (target?.matches?.('input,textarea,[contenteditable=true]')) return;
+    if (target?.matches?.('input,select,textarea,[contenteditable=true]')) return;
     const keys: Record<string, () => void> = {ArrowUp: operations['previous-file'], ArrowDown: operations['next-file'], ArrowLeft: operations['previous-group'], ArrowRight: operations['next-group']};
     if (state.mode === 'overview' && keys[event.key]) { event.preventDefault(); keys[event.key](); }
     if (event.key === '/') { event.preventDefault(); state.setOverlay('index'); }
@@ -254,7 +254,7 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     root.dataset.renderer = 'loading';
     void import('./scene/ArchiveWorld.ts').then(({ ArchiveWorld }) => {
       if (disposed) return;
-      world = new ArchiveWorld(worldContainer, entries, {activate: index => state.activate(index), fallback, introEnd: endIntro});
+      world = new ArchiveWorld(worldContainer, entries, {activate: index => state.activate(index), fallback, introEnd: endIntro}, entry => state.codeFor(entry));
       world.update(state); root.dataset.renderer = 'webgl';
       let seen = false; try { seen = document.defaultView!.sessionStorage.getItem('rhine-intro') === '1'; document.defaultView!.sessionStorage.setItem('rhine-intro', '1'); } catch { /* Intro still works without storage. */ }
       if (!seen) replay();

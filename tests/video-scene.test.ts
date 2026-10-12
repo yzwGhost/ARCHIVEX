@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { renderScene as renderVideoScene } from '../src/scene.ts';
+import { ArchiveModel, createModelAssets } from '../src/scene/ArchiveModel.ts';
 import type { ArchiveEntry } from '../src/types.ts';
 
 const dom = new JSDOM('<!doctype html><body></body>');
@@ -76,4 +77,35 @@ test('empty category keeps show-all and upload controls', () => {
   assert.equal(selected, '');
   assert.equal(uploads, 1);
   scene.dispose();
+});
+
+test('focused category select retains its Arrow and Enter keys', () => {
+  const second = { ...entry, id: 'second', category: '报告' };
+  const scene = renderVideoScene([entry, second], () => {}, {
+    allEntries: [entry, second], category: '', categories: ['研究', '报告'], selectedId: entry.id,
+    onCategoryChange: () => {}, onLocate: () => {}, onSelectionChange: () => {},
+  });
+  document.body.replaceChildren(scene);
+  const select = scene.querySelector<HTMLSelectElement>('.category-select')!;
+  select.focus();
+  const arrow = new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+  select.dispatchEvent(arrow);
+  assert.equal(arrow.defaultPrevented, false);
+  assert.equal(scene.state.entry.id, entry.id);
+  const enter = new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  select.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, false);
+  assert.equal(scene.state.mode, 'overview');
+  scene.dispose();
+});
+
+test('model label uses global archive number while retaining visible hit index', t => {
+  const labels: string[] = [];
+  t.mock.method(dom.window.HTMLCanvasElement.prototype, 'getContext', () => ({
+    clearRect() {}, fillRect() {}, fillText(value: string) { labels.push(value); },
+  }));
+  const model = new ArchiveModel({ ...entry, id: 'second' }, 0, createModelAssets(), 'X-002');
+  assert.equal(model.group.userData.entryIndex, 0);
+  assert.ok(labels.includes('NO.002'));
+  assert.ok(labels.includes('X-002'));
 });

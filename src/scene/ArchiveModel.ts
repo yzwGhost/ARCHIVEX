@@ -28,7 +28,7 @@ export class ArchiveModel {
   private layers: { object: THREE.Object3D; z: number; spread: number }[] = [];
   private strip: THREE.Mesh;
   private goldMaterial: THREE.MeshStandardMaterial;
-  constructor(entry: ArchiveEntry, index: number, assets: Assets) {
+  constructor(entry: ArchiveEntry, index: number, assets: Assets, code = fileCode(index)) {
     this.group.rotation.y = Math.PI / 2;
     this.group.userData.entryIndex = index;
     const add = (geometry: THREE.BufferGeometry, material: THREE.Material, z: number, spread: number, parent: THREE.Group = this.group) => {
@@ -70,9 +70,9 @@ export class ArchiveModel {
     context.fillStyle = '#242823';
     context.font = 'bold 23px Arial'; context.fillText('RHINE LAB, LLC.', 95, 62);
     context.font = '11px Arial'; context.fillText('INFORMATION  /  ARCHIVE SYSTEM', 95, 87);
-    context.font = 'bold 32px Arial'; context.fillText(`NO.${String(index + 1).padStart(3, '0')}`, 95, 133);
+    context.font = 'bold 32px Arial'; context.fillText(`NO.${code.slice(2)}`, 95, 133);
     context.font = 'bold 38px Arial'; context.fillText('∞', 308, 128);
-    context.font = '12px Arial'; context.fillText(fileCode(index), 80, 675);
+    context.font = '12px Arial'; context.fillText(code, 80, 675);
     context.font = '14px "Microsoft YaHei", sans-serif'; context.fillText(entry.title.slice(0, 42), 80, 704);
     context.fillStyle = '#66685f'; context.fillRect(808, 682, 90, 3);
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;

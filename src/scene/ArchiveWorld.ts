@@ -51,7 +51,7 @@ export class ArchiveWorld {
   private composer: EffectComposer;
   private contactShading: ArchiveContactPass;
 
-  constructor(container: HTMLElement, entries: ArchiveEntry[], callbacks: WorldCallbacks) {
+  constructor(container: HTMLElement, entries: ArchiveEntry[], callbacks: WorldCallbacks, codeFor?: (entry: ArchiveEntry) => string) {
     this.onIntroEnd = callbacks.introEnd;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.65));
@@ -86,7 +86,7 @@ export class ArchiveWorld {
     this.positions = layoutFiles(entries.length);
     const assets = createModelAssets();
     this.models = entries.map((entry, index) => {
-      const model = new ArchiveModel(entry, index, assets);
+      const model = new ArchiveModel(entry, index, assets, codeFor?.(entry));
       const p = this.positions[index]; model.group.position.set(p.x, 0, p.z);
       this.scene.add(model.group); return model;
     });

@@ -430,6 +430,23 @@ test('upload refresh preserves category and selected id in the video scene', asy
   panel.querySelector<HTMLButtonElement>('.upload-close')!.click();
 });
 
+test('category round trip keeps the automatically selected visible file', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  const second = { ...entry, id: 'second', category: '报告', title: '第二份档案' };
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ entries: [entry, second], warnings: [] })));
+  const app = document.createElement('main');
+  document.body.replaceChildren(app);
+  await startArchive(app);
+  let select = app.querySelector<HTMLSelectElement>('.category-select')!;
+  select.value = '报告';
+  select.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(app.querySelector<HTMLElement & { state: { entry: ArchiveEntry } }>('.archive-scene')?.state.entry.id, 'second');
+  select = app.querySelector<HTMLSelectElement>('.category-select')!;
+  select.value = '';
+  select.dispatchEvent(new dom.window.Event('change'));
+  assert.equal(app.querySelector<HTMLElement & { state: { entry: ArchiveEntry } }>('.archive-scene')?.state.entry.id, 'second');
+});
+
 test('closing upload cannot replace a later video reader', async t => {
   const { startArchive } = await import('../src/main.ts');
   dom.reconfigure({ url: 'http://127.0.0.1:5173/' });

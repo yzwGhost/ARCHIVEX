@@ -1,6 +1,6 @@
 import {
   ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, ChevronDown,
-  Download, Expand, Plus, RotateCcw, ScanEye, Search, Shrink, Upload, X,
+  Download, Expand, FolderCog, Plus, RotateCcw, ScanEye, Search, Shrink, Trash2, Upload, X,
   createElement,
 } from 'lucide';
 
@@ -13,6 +13,7 @@ const icons = {
   check: Check,
   'chevron-down': ChevronDown,
   download: Download,
+  'folder-cog': FolderCog,
   expand: Expand,
   plus: Plus,
   replay: RotateCcw,
@@ -20,6 +21,7 @@ const icons = {
   search: Search,
   shrink: Shrink,
   upload: Upload,
+  trash: Trash2,
   close: X,
 } as const;
 

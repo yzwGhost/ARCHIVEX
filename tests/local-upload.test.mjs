@@ -15,7 +15,7 @@ async function fixture(t, outputName = 'public/archive') {
   await mkdir(documentsDir, { recursive: true });
   await buildArchive({ documentsDir, outputDir });
   const { createUploadMiddleware } = await import('../scripts/local-upload.mjs');
-  const middleware = createUploadMiddleware({ documentsDir, outputDir });
+  const middleware = createUploadMiddleware({ documentsDir, outputDir, trashDir: path.join(root, '.archive-trash') });
   const server = createServer((req, res) => middleware(req, res, () => { res.writeHead(404).end(); }));
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -43,6 +43,63 @@ test('local upload exposes capability and publishes a categorized document', asy
   const manifest = JSON.parse(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8'));
   assert.equal(manifest.entries[0].id, entry.id);
   assert.match(await readFile(path.join(f.outputDir, 'previews', `${entry.id}.html`), 'utf8'), /正文/);
+});
+
+test('local recycle routes delete an entry and restore its batch', async t => {
+  const f = await fixture(t);
+  const uploaded = await (await upload(f, 'note.md', '# Note', '研究')).json();
+  const deleted = await fetch(`${f.url}/api/archives/${uploaded.entry.id}`, { method: 'DELETE' });
+  assert.equal(deleted.status, 200);
+  const batch = await deleted.json();
+  assert.deepEqual(batch.ids, [uploaded.entry.id]);
+  assert.equal((await (await fetch(`${f.url}/api/trash`)).json()).batches[0].operationId, batch.operationId);
+  assert.equal(JSON.parse(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8')).entries.length, 0);
+  const restored = await fetch(`${f.url}/api/trash/${batch.operationId}/restore`, { method: 'POST' });
+  assert.equal(restored.status, 200);
+  assert.deepEqual((await restored.json()).ids, [uploaded.entry.id]);
+});
+
+test('category route recycles current members and keeps others', async t => {
+  const f = await fixture(t);
+  await upload(f, 'a.md', 'A', '研究');
+  await upload(f, 'b.md', 'B', '研究');
+  await upload(f, 'c.md', 'C', '其他');
+  const response = await fetch(`${f.url}/api/categories`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category: '研究' }) });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).ids.length, 2);
+  assert.deepEqual(JSON.parse(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8')).entries.map(e => e.title), ['c']);
+});
+
+test('upload and category deletion serialize without a partial batch', async t => {
+  const f = await fixture(t);
+  await upload(f, 'first.md', 'first', '研究');
+  const [uploaded, deleted] = await Promise.all([
+    upload(f, 'second.md', 'second', '研究'),
+    fetch(`${f.url}/api/categories`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category: '研究' }) }),
+  ]);
+  assert.equal(uploaded.status, 201);
+  assert.equal(deleted.status, 200);
+  const removed = (await deleted.json()).ids;
+  const active = JSON.parse(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8')).entries;
+  assert.equal(removed.length + active.length, 2);
+  assert.ok(removed.length === 1 || removed.length === 2);
+});
+
+test('category deletion rejects stale confirmed members', async t => {
+  const f = await fixture(t);
+  const first = await (await upload(f, 'first.md', 'first', '研究')).json();
+  await upload(f, 'second.md', 'second', '研究');
+  const response = await fetch(`${f.url}/api/categories`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category: '研究', expectedIds: [first.entry.id] }) });
+  assert.equal(response.status, 409);
+  assert.equal(JSON.parse(await readFile(path.join(f.outputDir, 'manifest.json'), 'utf8')).entries.length, 2);
+});
+
+test('recycle routes reject foreign origins and malformed category bodies', async t => {
+  const f = await fixture(t);
+  const options = { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{invalid' };
+  assert.equal((await fetch(`${f.url}/api/categories`, options)).status, 400);
+  assert.equal((await fetch(`${f.url}/api/categories`, { ...options, headers: { ...options.headers, Origin: 'http://attacker.example' } })).status, 403);
 });
 
 test('upload rejects duplicate file and shared metadata stem without overwriting', async t => {

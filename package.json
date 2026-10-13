@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "dev": "node scripts/build-archive.mjs && vite --host 127.0.0.1",
-    "build": "node scripts/build-archive.mjs && tsc --noEmit && vite build",
+    "dev": "node scripts/archive-build.mjs && vite --host 127.0.0.1",
+    "build": "node scripts/archive-build.mjs && tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

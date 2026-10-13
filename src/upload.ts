@@ -1,4 +1,5 @@
-import { icon, setIconLabel } from './icons.ts';
+import { createArchiveDropdown, type ArchiveDropdown } from './archive-dropdown.ts';
+import { setIconLabel } from './icons.ts';
 
 interface UploadPanelOptions {
   categories: string[];
@@ -9,9 +10,11 @@ interface UploadPanelOptions {
 export function renderUploadPanel({ categories, onClose, onComplete }: UploadPanelOptions): HTMLElement {
   const panel = document.createElement('section');
   let closed = false;
+  let categoryDropdown: ArchiveDropdown | undefined;
   const closePanel = () => {
     if (closed) return;
     closed = true;
+    categoryDropdown?.dispose();
     onClose();
   };
   panel.className = 'upload-panel';
@@ -36,20 +39,15 @@ export function renderUploadPanel({ categories, onClose, onComplete }: UploadPan
   files.accept = '.md,.docx,.pdf,.doc';
   files.className = 'upload-file';
   fileLabel.append(files);
-  const categoryLabel = document.createElement('label');
-  categoryLabel.textContent = '分类';
-  const category = document.createElement('select');
-  category.className = 'upload-category';
-  for (const name of ['', ...categories.filter(name => name !== '未分类')]) {
-    const option = document.createElement('option');
-    option.value = name;
-    option.textContent = name || '未分类';
-    category.append(option);
-  }
-  const categoryFrame = document.createElement('span');
-  categoryFrame.className = 'select upload-select';
-  categoryFrame.append(category, icon('chevron-down'));
-  categoryLabel.append(categoryFrame);
+  const categoryLabel = document.createElement('div');
+  categoryLabel.className = 'upload-field';
+  const categoryCaption = document.createElement('span');
+  categoryCaption.textContent = '分类';
+  categoryDropdown = createArchiveDropdown({
+    options: ['', ...categories.filter(name => name !== '未分类')].map(name => ({ value: name, label: name || '未分类' })),
+    value: '', ariaLabel: '选择档案分类', className: 'upload-select', selectClassName: 'upload-category',
+  });
+  categoryLabel.append(categoryCaption, categoryDropdown.element);
   const newCategoryLabel = document.createElement('label');
   newCategoryLabel.textContent = '或填写新分类';
   const newCategory = document.createElement('input');
@@ -70,7 +68,7 @@ export function renderUploadPanel({ categories, onClose, onComplete }: UploadPan
     if (submit.disabled) return;
     const selected = Array.from(files.files ?? []);
     if (!selected.length) { status.textContent = '请先选择文件。'; return; }
-    const selectedCategory = (newCategory.value.trim() || category.value).trim();
+    const selectedCategory = (newCategory.value.trim() || categoryDropdown!.select.value).trim();
     if (selectedCategory.length > 60) { status.textContent = '分类不能超过 60 字。'; return; }
     submit.disabled = true;
     results.replaceChildren();

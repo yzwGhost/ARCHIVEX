@@ -5,6 +5,7 @@ import { link, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { appendArchiveEntry } from './build-archive.mjs';
+import { createArchiveTrash } from './archive-trash.mjs';
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const allowed = new Set(['.md', '.docx', '.pdf', '.doc']);
@@ -92,7 +93,19 @@ async function parseUpload(req, documentsDir) {
   }
 }
 
-export function createUploadMiddleware({ documentsDir, outputDir }) {
+async function readJson(req) {
+  let body = '';
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 4096) throw new UploadError(400, 'invalid_request', '请求内容过长。');
+  }
+  try { return JSON.parse(body); }
+  catch { throw new UploadError(400, 'invalid_request', '请求内容不是有效 JSON。'); }
+}
+
+export function createUploadMiddleware({ documentsDir, outputDir, trashDir }) {
+  const trash = createArchiveTrash({ documentsDir, outputDir, trashDir });
+  const ready = trash.recoverPending();
   let queue = Promise.resolve();
   const commit = task => {
     const result = queue.then(task, task);
@@ -101,7 +114,9 @@ export function createUploadMiddleware({ documentsDir, outputDir }) {
   };
   return (req, res, next) => {
     const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
-    if (pathname !== '/api/upload-capabilities' && pathname !== '/api/uploads') return next();
+    const archiveId = /^\/api\/archives\/([^/]+)$/u.exec(pathname)?.[1];
+    const restoreId = /^\/api\/trash\/([^/]+)\/restore$/u.exec(pathname)?.[1];
+    if (!['/api/upload-capabilities', '/api/uploads', '/api/categories', '/api/trash'].includes(pathname) && !archiveId && !restoreId) return next();
     const host = req.headers.host ?? '';
     const expectedOrigin = `http://${host}`;
     if (!/^127\.0\.0\.1(?::\d+)?$/u.test(host) || (req.headers.origin && req.headers.origin !== expectedOrigin)) {
@@ -110,6 +125,30 @@ export function createUploadMiddleware({ documentsDir, outputDir }) {
     }
     if (pathname === '/api/upload-capabilities' && req.method === 'GET') {
       send(res, 200, { enabled: true, maxFileBytes: MAX_FILE_BYTES });
+      return;
+    }
+    if (pathname === '/api/trash' && req.method === 'GET') {
+      void commit(async () => { await ready; return trash.listTrash(); })
+        .then(batches => send(res, 200, { batches }))
+        .catch(error => send(res, error.status ?? 500, { code: error.code ?? 'storage_error', message: error.status ? error.message : '回收区读取失败。' }));
+      return;
+    }
+    if ((archiveId && req.method === 'DELETE') || (pathname === '/api/categories' && req.method === 'DELETE') || (restoreId && req.method === 'POST')) {
+      void (async () => {
+        try {
+          const body = pathname === '/api/categories' ? await readJson(req) : undefined;
+          if (pathname === '/api/categories' && (typeof body?.category !== 'string' || !body.category.trim())) throw new UploadError(400, 'invalid_category', '请指定分类。');
+          const result = await commit(async () => {
+            await ready;
+            if (archiveId) return trash.trashEntry(archiveId);
+            if (restoreId) return trash.restoreTrash(restoreId);
+            return trash.trashCategory(body.category, body.expectedIds);
+          });
+          send(res, 200, result);
+        } catch (error) {
+          if (!res.headersSent) send(res, error.status ?? 500, { code: error.code ?? 'storage_error', message: error.status ? error.message : '档案操作失败。' });
+        }
+      })();
       return;
     }
     if (pathname !== '/api/uploads' || req.method !== 'POST') {
@@ -122,6 +161,7 @@ export function createUploadMiddleware({ documentsDir, outputDir }) {
         if (Number(req.headers['content-length']) > MAX_FILE_BYTES + 16 * 1024) throw new UploadError(413, 'too_large', '单文件不能超过 50 MiB。');
         parsed = await parseUpload(req, documentsDir);
         const result = await commit(async () => {
+          await ready;
           const stem = path.parse(parsed.filename).name;
           const existing = await readdir(documentsDir);
           if (existing.some(name => allowed.has(path.extname(name).toLowerCase()) && path.parse(name).name.toLowerCase() === stem.toLowerCase()) || existing.some(name => name.toLowerCase() === `${stem}.meta.json`.toLowerCase())) {

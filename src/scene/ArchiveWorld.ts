@@ -5,10 +5,12 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ArchiveContactPass } from './ArchiveContactPass.ts';
+import { ArchiveDepthBlurPass } from './ArchiveDepthBlurPass.ts';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ArchiveModel, createModelAssets } from './ArchiveModel.ts';
 import { MotionValue } from './ArchiveMotion.ts';
 import { archiveWave } from './ArchiveWave.ts';
+import { removalPose } from './ArchiveRemoval.ts';
 import { layoutFiles } from '../layout.ts';
 import type { ArchiveState } from '../archive-state.ts';
 import type { ArchiveEntry } from '../types.ts';
@@ -20,7 +22,9 @@ export class ArchiveWorld {
   readonly camera = new THREE.OrthographicCamera(-10, 10, 6, -6, .1, 140);
   private scene = new THREE.Scene();
   private models: ArchiveModel[];
-  private positions: ReturnType<typeof layoutFiles>;
+  private entryIds: string[];
+  private positions: ReturnType<typeof layoutFiles>['files'];
+  private placeholders: THREE.InstancedMesh | undefined;
   private controls: OrbitControls;
   private state: ArchiveState | undefined;
   private observer: ResizeObserver;
@@ -43,47 +47,49 @@ export class ArchiveWorld {
   private pointerStart: { x: number; y: number; index: number; id: number } | null = null;
   private onIntroEnd: () => void;
   private cleanup: (() => void)[] = [];
-  private ambient: THREE.InstancedMesh | undefined;
-  private ambientPositions: {x: number; z: number}[] = [];
-  private instanceMatrix = new THREE.Matrix4();
   private environment: THREE.WebGLRenderTarget;
   private keyLight: THREE.DirectionalLight;
   private composer: EffectComposer;
   private contactShading: ArchiveContactPass;
+  private depthBlur: ArchiveDepthBlurPass;
+  private removal: { ids: Set<string>; ordered: string[]; start: number; resolve: () => void } | undefined;
+  private removedIds = new Set<string>();
 
   constructor(container: HTMLElement, entries: ArchiveEntry[], callbacks: WorldCallbacks, codeFor?: (entry: ArchiveEntry) => string) {
     this.onIntroEnd = callbacks.introEnd;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.65));
-    this.renderer.setClearColor('#eeece5');
+    this.renderer.setClearColor('#e9decb');
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.VSMShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.0;
     const canvas = this.renderer.domElement;
     canvas.className = 'archive-canvas'; canvas.tabIndex = 0;
     canvas.setAttribute('aria-label', '立体档案阵列，点击选中，再次点击查看详情；方向键切换档案，Enter 打开');
     container.append(canvas);
-    this.scene.background = new THREE.Color('#eeece5');
-    this.scene.fog = new THREE.Fog('#eeece5', 22, 57);
+    this.scene.background = new THREE.Color('#e9decb');
+    this.scene.fog = new THREE.Fog('#e9decb', 22, 57);
     const studio = new RoomEnvironment();
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.environment = pmrem.fromScene(studio, .06);
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = .40;
+    this.scene.environmentIntensity = .35;
     studio.dispose(); pmrem.dispose();
-    this.scene.add(new THREE.HemisphereLight('#fffdf7', '#c4bba8', 2.0));
-    const key = this.keyLight = new THREE.DirectionalLight('#fff7e8', 2.2);
+    this.scene.add(new THREE.HemisphereLight('#fff1d9', '#ad9277', 1.5));
+    const key = this.keyLight = new THREE.DirectionalLight('#ffe0ad', 2.3);
     key.position.set(-10, 20, 10); key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048); key.shadow.camera.left = -22; key.shadow.camera.right = 22;
     key.shadow.camera.top = 22; key.shadow.camera.bottom = -22; key.shadow.camera.far = 65;
     key.shadow.bias = -.00015; key.shadow.normalBias = .018;
-    key.shadow.radius = 3.75; key.shadow.blurSamples = 8; key.shadow.intensity = .72;
+    key.shadow.radius = 3.75; key.shadow.blurSamples = 8; key.shadow.intensity = .78;
     this.scene.add(key, key.target);
-    this.scene.add(new THREE.AmbientLight('#fffdf7', .25));
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshStandardMaterial({ color: '#eeeae1', roughness: .96 }));
-    ground.rotation.x = -Math.PI / 2; ground.position.y = -.03; ground.receiveShadow = true; this.scene.add(ground);
-    this.positions = layoutFiles(entries.length);
+    this.scene.add(new THREE.AmbientLight('#fff0d9', .18));
+    const layout = layoutFiles(entries);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(160, layout.visualColumns * .48 + 40), Math.max(160, layout.visualRows * 4.6 + 40)), new THREE.MeshStandardMaterial({ color: '#e9dbc5', roughness: .96 }));
+    ground.rotation.x = -Math.PI / 2; ground.position.set(0, -.03, -(layout.visualRows - 1) * 2.3); ground.receiveShadow = true; this.scene.add(ground);
+    this.positions = layout.files;
+    this.entryIds = entries.map(entry => entry.id);
     const assets = createModelAssets();
     this.models = entries.map((entry, index) => {
       const model = new ArchiveModel(entry, index, assets, codeFor?.(entry));
@@ -91,21 +97,15 @@ export class ArchiveWorld {
       this.scene.add(model.group); return model;
     });
     this.lift = entries.map(() => new MotionValue(0));
-    // Unnumbered distant silhouettes extend the composition, never the document inventory.
-    if (entries.length > 8) {
-      const transforms: THREE.Matrix4[] = [];
-      for (let row = -2; row < Math.ceil(entries.length / 8) + 3; row++) {
-        for (let slot = -12; slot < 20; slot++) {
-          if (row >= 0 && row < Math.ceil(entries.length / 8) && slot >= 0 && slot < 8) continue;
-          transforms.push(new THREE.Matrix4().makeTranslation((slot - 3.5) * .48, 1.36, -row * 4.6));
-          this.ambientPositions.push({x: (slot - 3.5) * .48, z: -row * 4.6});
-        }
-      }
-      this.ambient = new THREE.InstancedMesh(new RoundedBoxGeometry(.23, 2.72, 3.72, 2, .045), assets.ivory, transforms.length);
-      this.ambient.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      this.ambient.frustumCulled = false;
-      transforms.forEach((matrix, index) => this.ambient!.setMatrixAt(index, matrix));
-      this.ambient.receiveShadow = true; this.ambient.castShadow = true; this.scene.add(this.ambient);
+    if (layout.placeholders.length) {
+      this.placeholders = new THREE.InstancedMesh(new RoundedBoxGeometry(.23, 2.72, 3.72, 2, .045), assets.ivory, layout.placeholders.length);
+      const matrix = new THREE.Matrix4();
+      layout.placeholders.forEach((position, index) => this.placeholders!.setMatrixAt(index, matrix.makeTranslation(position.x, 1.36, position.z)));
+      this.placeholders.instanceMatrix.needsUpdate = true;
+      this.placeholders.frustumCulled = false;
+      this.placeholders.receiveShadow = true;
+      this.placeholders.castShadow = true;
+      this.scene.add(this.placeholders);
     }
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enabled = false; this.controls.enableDamping = true; this.controls.dampingFactor = .07;
@@ -117,10 +117,12 @@ export class ArchiveWorld {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.contactShading = new ArchiveContactPass(this.scene, this.camera);
     this.contactShading.prepareOpaqueMeshes();
-    this.contactShading.blendIntensity = .38;
+    this.contactShading.blendIntensity = .42;
     this.contactShading.updateGtaoMaterial({radius: .42, thickness: .22, scale: 1, samples: 8, distanceFallOff: .7, screenSpaceRadius: false});
     this.contactShading.updatePdMaterial({radius: 5, samples: 8, rings: 2});
     this.composer.addPass(this.contactShading);
+    this.depthBlur = new ArchiveDepthBlurPass(this.contactShading.depthTexture);
+    this.composer.addPass(this.depthBlur);
     this.composer.addPass(new OutputPass());
     // The normal prepass reuses the beauty pass's shadows instead of rendering them twice.
     this.renderer.shadowMap.autoUpdate = false;
@@ -145,16 +147,16 @@ export class ArchiveWorld {
     };
     const move = (event: PointerEvent) => {
       if (this.pointerStart && Math.hypot(event.clientX - this.pointerStart.x, event.clientY - this.pointerStart.y) > 5) this.pointerStart = null;
-      if (!this.state || this.state.mode !== 'overview' || this.state.overlay || this.state.reading || this.introActive) return;
+      if (this.removal || !this.state || this.state.mode !== 'overview' || this.state.overlay || this.state.reading || this.introActive) return;
       const index = hit(event); canvas.style.cursor = index >= 0 ? 'pointer' : 'default';
     };
     const down = (event: PointerEvent) => {
-      this.pointerStart = event.button === 0 && event.isPrimary && this.mode === 'overview' && !this.state?.overlay && !this.state?.reading && !this.introActive
+      this.pointerStart = !this.removal && event.button === 0 && event.isPrimary && this.mode === 'overview' && !this.state?.overlay && !this.state?.reading && !this.introActive
         ? { x: event.clientX, y: event.clientY, index: hit(event), id: event.pointerId } : null;
     };
     const up = (event: PointerEvent) => {
       const start = this.pointerStart; this.pointerStart = null;
-      if (!start || start.id !== event.pointerId || event.button !== 0 || this.mode !== 'overview' || this.state?.overlay || this.state?.reading || this.introActive || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
+      if (!start || this.removal || start.id !== event.pointerId || event.button !== 0 || this.mode !== 'overview' || this.state?.overlay || this.state?.reading || this.introActive || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) return;
       const index = hit(event); if (index >= 0 && index === start.index) callbacks.activate(index);
     };
     const lost = (event: Event) => { event.preventDefault(); this.dispose(); callbacks.fallback(); };
@@ -181,13 +183,24 @@ export class ArchiveWorld {
       this.depth.to(state.mode === 'overview' ? 0 : 1, state.mode === 'overview' ? 900 : 1150, now);
       this.resetting = state.mode === 'inspect';
     }
-    this.controls.enabled = this.mode === 'inspect' && !state.overlay && !state.reading && !this.resetting;
+    this.controls.enabled = !this.removal && this.mode === 'inspect' && !state.overlay && !state.reading && !this.resetting;
     this.explosion.to(state.exploded ? 1 : 0, 850, now);
   }
   private resetting = false;
   resetView() { this.resetting = true; this.controls.enabled = false; }
   replayIntro() { this.introStart = performance.now(); this.introActive = true; }
   skipIntro() { if (!this.introActive) return; this.introActive = false; this.onIntroEnd(); }
+  animateRemoval(ids: string[], options: { reducedMotion?: boolean } = {}): Promise<void> {
+    if (this.disposed || options.reducedMotion || !ids.length) return Promise.resolve();
+    this.skipIntro();
+    if (this.removal) { this.removal.ordered.forEach(id => this.removedIds.add(id)); this.removal.resolve(); }
+    const ordered = ids.filter(id => this.entryIds.includes(id));
+    if (!ordered.length) return Promise.resolve();
+    this.controls.enabled = false;
+    this.pointerStart = null;
+    this.depth.to(0, 340, performance.now());
+    return new Promise(resolve => { this.removal = { ids: new Set(ordered), ordered, start: performance.now(), resolve }; });
+  }
   private projection() {
     this.camera.left = -this.cameraSize * this.aspect / 2; this.camera.right = this.cameraSize * this.aspect / 2;
     this.camera.top = this.cameraSize / 2; this.camera.bottom = -this.cameraSize / 2;
@@ -207,22 +220,21 @@ export class ArchiveWorld {
       const isSelected = index === this.selected;
       const wave = archiveWave(position.x, position.z, now, detail);
       const enter = this.introActive ? Math.max(0, 1 - Math.max(0, intro * 1.4 - index * .006)) : 0;
-      model.group.position.set(position.x, this.lift[index].value(now) + wave - enter * 5 - (isSelected ? 0 : detail * 3.8), position.z);
-      model.group.visible = isSelected || detail < .998;
+      const removalIndex = this.removal?.ordered.indexOf(this.entryIds[index]) ?? -1;
+      const pose = removalIndex >= 0 ? removalPose(now - this.removal!.start, removalIndex, this.removal!.ordered.length) : null;
+      model.group.position.set(position.x, this.lift[index].value(now) + wave - enter * 5 - (isSelected ? 0 : detail * 3.8) + (pose?.lift ?? 0), position.z + (pose?.forward ?? 0));
+      model.group.rotation.x = pose?.rotation ?? 0;
+      model.group.visible = removalIndex >= 0 ? !pose?.done : !this.removedIds.has(this.entryIds[index]) && (isSelected || detail < .998);
       model.update(isSelected ? explode : 0, isSelected, isSelected);
     });
-    if (this.ambient) {
-      this.ambient.position.y = -detail * 5 - (1 - intro) * 4;
-      this.ambient.visible = detail < .995;
-      if (this.ambient.visible) {
-        this.ambientPositions.forEach((position, index) => {
-          this.instanceMatrix.makeTranslation(position.x, 1.36 + archiveWave(position.x, position.z, now, detail), position.z);
-          this.ambient!.setMatrixAt(index, this.instanceMatrix);
-        });
-        this.ambient.instanceMatrix.needsUpdate = true;
-      }
+    if (this.removal && this.removal.ordered.every((_, index) => removalPose(now - this.removal!.start, index, this.removal!.ordered.length).done)) {
+      const finish = this.removal.resolve; this.removal.ordered.forEach(id => this.removedIds.add(id)); this.removal = undefined; finish();
     }
-    // Keep the shadow volume and lighting direction consistent while navigating deep groups.
+    if (this.placeholders) {
+      this.placeholders.visible = detail < .995;
+      this.placeholders.position.y = -detail * 5 - (1 - intro) * 4;
+    }
+    // Keep the shadow volume and lighting direction with the selected file.
     this.keyLight.target.position.lerp(new THREE.Vector3(p.x, 0, p.z), blend);
     this.keyLight.position.copy(this.keyLight.target.position).add(new THREE.Vector3(-10, 20, 10));
     const narrow = this.aspect < 1;
@@ -247,11 +259,14 @@ export class ArchiveWorld {
       }
     } else if (this.controls.enabled) this.controls.update();
     this.renderer.shadowMap.needsUpdate = true;
+    const focus = this.models[this.selected]?.group.position ?? new THREE.Vector3(p.x, 0, p.z);
+    this.depthBlur.update(this.camera, new THREE.Vector3(focus.x, focus.y + 1.55, focus.z), 1 - detail);
     this.composer.render(dt);
     this.animation = requestAnimationFrame(this.render);
   };
   dispose() {
     if (this.disposed) return; this.disposed = true;
+    this.removal?.resolve(); this.removal = undefined;
     cancelAnimationFrame(this.animation); this.observer.disconnect(); this.controls.dispose();
     this.cleanup.forEach(fn => fn());
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();

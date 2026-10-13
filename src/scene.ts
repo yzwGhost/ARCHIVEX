@@ -1,5 +1,6 @@
 import { ArchiveState, searchEntries } from './archive-state.ts';
-import { categoryOptions } from './categories.ts';
+import { createArchiveDropdown, type ArchiveDropdown } from './archive-dropdown.ts';
+import { categoryOptions, entryCategory } from './categories.ts';
 import { hydrateIcons, setIconLabel, icon } from './icons.ts';
 import type { ArchiveEntry } from './types.ts';
 import type { ArchiveWorld } from './scene/ArchiveWorld.ts';
@@ -8,6 +9,7 @@ export interface ArchiveSceneElement extends HTMLElement {
   state: ArchiveState;
   dispose(): void;
   setReading(value: boolean): void;
+  animateRemoval(ids: string[], reducedMotion: boolean): Promise<void>;
 }
 const pad = (value: number) => String(value).padStart(2, '0');
 interface SceneControls {
@@ -19,11 +21,14 @@ interface SceneControls {
   onLocate: (id: string) => void;
   onSelectionChange: (id: string) => void;
   onUpload?: () => void;
+  onDeleteEntry?: (id: string) => void;
+  onManageCategories?: () => void;
+  onOpenTrash?: () => void;
 }
 
 export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntry, trigger: HTMLButtonElement) => void, controls?: SceneControls): ArchiveSceneElement {
   const root = document.createElement('section') as ArchiveSceneElement;
-  root.className = 'archive-scene'; root.setAttribute('aria-label', '莱茵生命研究档案');
+  root.className = 'archive-scene'; root.tabIndex = -1; root.setAttribute('aria-label', '莱茵生命研究档案');
   let storage: Storage | undefined;
   try { storage = document.defaultView?.localStorage; } catch { /* Session-only favorites remain available. */ }
   const state = new ArchiveState(entries, storage, { allEntries: controls?.allEntries, selectedId: controls?.selectedId }); root.state = state;
@@ -33,26 +38,20 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
   let previousMode = state.mode;
   let overviewFocus: HTMLElement | null = null;
   let reportedId = state.entry?.id;
+  let categoryDropdown: ArchiveDropdown | undefined;
   const addControls = (container: Element) => {
     if (!controls) return;
-    const label = document.createElement('label');
+    const label = document.createElement('div');
     label.className = 'scene-category-label';
-    label.textContent = '分类 ';
-    const select = document.createElement('select');
-    select.className = 'category-select';
-    select.setAttribute('aria-label', '按分类筛选档案');
-    for (const category of ['', ...controls.categories]) {
-      const option = document.createElement('option');
-      option.value = category;
-      option.textContent = category || '全部';
-      select.append(option);
-    }
-    select.value = controls.category;
-    select.addEventListener('change', () => controls.onCategoryChange(select.value));
-    const selectFrame = document.createElement('span');
-    selectFrame.className = 'select archive-select';
-    selectFrame.append(select, icon('chevron-down'));
-    label.append(selectFrame);
+    const caption = document.createElement('span');
+    caption.textContent = '分类';
+    categoryDropdown = createArchiveDropdown({
+      options: ['', ...controls.categories].map(category => ({ value: category, label: category || '全部' })),
+      value: controls.category,
+      ariaLabel: '按分类筛选档案', className: 'archive-select', selectClassName: 'category-select',
+      onChange: controls.onCategoryChange,
+    });
+    label.append(caption, categoryDropdown.element);
     container.append(label);
     if (controls.onUpload) {
       const upload = document.createElement('button');
@@ -62,9 +61,40 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
       upload.addEventListener('click', controls.onUpload);
       container.append(upload);
     }
+    if (controls.onManageCategories) {
+      const manage = document.createElement('button'); manage.type = 'button'; manage.className = 'button is-outlined manage-categories';
+      setIconLabel(manage, 'folder-cog', '管理分类'); manage.addEventListener('click', controls.onManageCategories); container.append(manage);
+    }
+    if (controls.onOpenTrash) {
+      const trash = document.createElement('button'); trash.type = 'button'; trash.className = 'button is-outlined open-trash';
+      setIconLabel(trash, 'trash', '回收区'); trash.addEventListener('click', controls.onOpenTrash); container.append(trash);
+    }
   };
-  root.dispose = () => { disposed = true; world?.dispose(); clearTimeout(introTimer); document.removeEventListener('keydown', onKey); unsubscribe(); };
+  let finishFallback: (() => void) | undefined;
+  root.dispose = () => { disposed = true; finishFallback?.(); categoryDropdown?.dispose(); world?.dispose(); clearTimeout(introTimer); document.removeEventListener('keydown', onKey); unsubscribe(); };
   root.setReading = value => { state.reading = value; state.notify(); };
+  root.animateRemoval = async (ids, reducedMotion) => {
+    if (disposed || reducedMotion) return;
+    for (let attempt = 0; !world && !disposed && root.dataset.renderer === 'loading' && attempt < 40; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 16));
+    }
+    if (disposed) return;
+    if (world) return world.animateRemoval(ids, { reducedMotion });
+    const targets = [...root.querySelectorAll<HTMLElement>('.archive-file')].filter(el => ids.includes(el.dataset.entryId ?? ''));
+    if (!targets.length) return;
+    await new Promise<void>(resolve => {
+      let left = targets.length;
+      const finish = () => { if (!finishFallback) return; finishFallback = undefined; resolve(); };
+      finishFallback = finish;
+      targets.forEach((el, index) => {
+        const delay = Math.min(index * 50, 400);
+        if (typeof el.animate === 'function') {
+          void el.animate([{ transform: 'translateX(0)', opacity: 1 }, { transform: 'translateX(110%)', opacity: 0 }],
+            { duration: 420, delay, fill: 'forwards' }).finished.catch(() => {}).finally(() => { if (--left === 0) finish(); });
+        } else { el.classList.add('archive-file-exit'); setTimeout(() => { if (--left === 0) finish(); }, 420 + delay); }
+      });
+    });
+  };
   const unsubscribe = state.subscribe(update);
   if (!entries.length) {
     root.innerHTML = '<header class="archive-brand"><h1>RHINE LAB</h1><p>ANALYSIS OS</p></header>';
@@ -109,7 +139,7 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
         <dl class="record-meta"><div><dt>ARCHIVE DATE</dt><dd data-field="date"></dd></div><div><dt>FILE FORMAT</dt><dd data-field="type"></dd></div><div><dt>CATEGORY</dt><dd data-field="category"></dd></div><div><dt>STATUS</dt><dd>已归档 / ARCHIVED</dd></div></dl>
         <div class="record-overview"><p class="eyebrow">01 / OVERVIEW</p><p data-field="summary"></p></div>
         <button class="button is-ghost read-document" data-action="read">阅读档案正文 <span data-icon="arrow-up-right"></span></button>
-        <div class="detail-actions"><button class="button is-ghost" data-action="save"><span data-icon="plus"></span>收藏档案</button><button class="button is-ghost" data-action="inspect"><span data-icon="inspect"></span>360° 检视</button><a data-field="download" download><span data-icon="download"></span>下载原文件</a></div>
+        <div class="detail-actions"><button class="button is-ghost" data-action="save"><span data-icon="plus"></span>收藏档案</button><button class="button is-ghost" data-action="inspect"><span data-icon="inspect"></span>360° 检视</button><a data-field="download" download><span data-icon="download"></span>下载原文件</a><button class="button is-ghost delete-archive" data-action="delete"><span data-icon="trash"></span>删除档案</button></div>
         <p class="save-status" role="status"></p>
       </section>
       <section class="inspection-label" aria-label="三维检视"><p class="eyebrow">ARCHIVE OBJECT / 360° VIEW</p><h2 data-field="code"></h2><p data-field="title"></p><span>拖动旋转 · 滚轮缩放</span></section>
@@ -117,8 +147,7 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
       <div class="inspection-controls"><button class="button is-ghost" data-action="explode"><span data-icon="expand"></span>展开档案结构</button><button class="button is-ghost" data-action="reset"><span data-icon="replay"></span>重置视角</button></div>
       <footer class="archive-footer">
         <div class="file-counter"><small>ARCHIVE / SELECT</small><div><strong data-field="position"></strong><i>/</i><span data-field="group-length"></span></div></div>
-        <nav class="file-navigation" aria-label="组内档案"><button class="button is-ghost" data-action="previous-file" aria-label="上一份档案"><span data-icon="arrow-up"></span></button><div class="file-ticks"></div><button class="button is-ghost" data-action="next-file" aria-label="下一份档案"><span data-icon="arrow-down"></span></button></nav>
-        <nav class="group-navigation" aria-label="档案分组"><button class="button is-ghost" data-action="previous-group" aria-label="上一组档案"><span data-icon="arrow-left"></span></button><div><small data-field="group"></small><span data-field="category"></span></div><button class="button is-ghost" data-action="next-group" aria-label="下一组档案"><span data-icon="arrow-right"></span></button></nav>
+        <nav class="file-navigation" aria-label="浏览档案"><button class="button is-ghost" data-action="previous-file" aria-label="上一份档案"><span data-icon="arrow-left"></span></button><span class="current-category"><small>当前分类</small><strong class="current-category-name" data-field="current-category"></strong></span><button class="button is-ghost" data-action="next-file" aria-label="下一份档案"><span data-icon="arrow-right"></span></button></nav>
         <div class="powered">POWERED BY <strong>RHINE LAB</strong><b>━</b></div>
       </footer>
     </div>
@@ -126,6 +155,7 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     <div class="intro-overlay" hidden><div class="intro-mark" aria-hidden="true">∞</div><p>RHINE LAB <span>/</span> ARCHIVE SYSTEM</p><div class="intro-line"></div><button class="button is-ghost" data-action="skip">跳过开场 <span data-icon="arrow-right"></span></button></div>`;
   hydrateIcons(root);
   addControls(root.querySelector('.archive-toolbar')!);
+  if (!controls?.onDeleteEntry) root.querySelector('[data-action=delete]')?.remove();
   const ui = root.querySelector<HTMLElement>('.archive-interface')!;
   const worldContainer = root.querySelector<HTMLElement>('.archive-world')!;
   const field = (name: string, text: string) => root.querySelectorAll<HTMLElement>(`[data-field="${name}"]`).forEach(el => { el.textContent = text; });
@@ -148,8 +178,8 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     open: () => state.open(), back: () => state.back(), inspect: () => state.inspect(),
     save: () => state.toggleSaved(), explode: () => state.toggleExploded(), reset: () => world?.resetView(),
     read: () => { if (!disposed && !state.reading) onRead(state.entry, action('read')); },
+    delete: () => { if (!disposed && state.entry) controls?.onDeleteEntry?.(state.entry.id); },
     'previous-file': () => state.stepFile(-1), 'next-file': () => state.stepFile(1),
-    'previous-group': () => state.stepGroup(-1), 'next-group': () => state.stepGroup(1),
     replay, skip: () => { world?.skipIntro(); endIntro(); },
   };
   root.querySelectorAll<HTMLButtonElement>('[data-action]').forEach(button => button.addEventListener('click', () => { if (!disposed) operations[button.dataset.action!](); }));
@@ -203,26 +233,14 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     const changedMode = previousMode !== state.mode;
     if (changedMode && previousMode === 'overview') overviewFocus = document.activeElement as HTMLElement;
     root.dataset.mode = state.mode; root.classList.toggle('has-directory', Boolean(state.overlay));
-    field('code', state.codeFor(state.entry)); field('title', state.entry.title); field('category', state.entry.category || '未分类');
+    field('code', state.codeFor(state.entry)); field('title', state.entry.title); field('category', entryCategory(state.entry)); field('current-category', entryCategory(state.entry));
     field('date', state.entry.date?.slice(0, 10) || '—'); field('type', state.entry.type.toUpperCase()); field('summary', state.entry.summary || '此档案暂无摘要，打开正文查看完整资料。');
-    field('saved-count', pad(state.saved.size)); field('position', pad(state.selected % 8 + 1)); field('group-length', pad(state.groupLength));
-    field('group', `COLUMN ${pad(state.group + 1)} / ${pad(state.groupCount)}`);
+    field('saved-count', pad(state.saved.size)); field('position', pad(state.selected + 1)); field('group-length', pad(state.entries.length));
     const download = root.querySelector<HTMLAnchorElement>('[data-field=download]')!; download.href = state.entry.sourceUrl; download.download = state.entry.relativePath.split('/').pop()!;
     setIconLabel(action('save'), state.saved.has(state.entry.id) ? 'check' : 'plus', state.saved.has(state.entry.id) ? '已收藏' : '收藏档案'); action('save').setAttribute('aria-pressed', String(state.saved.has(state.entry.id)));
     root.querySelector('.save-status')!.textContent = !state.storageAvailable && state.saved.size ? '收藏保留在本次会话中（浏览器存储不可用）' : '';
     setIconLabel(action('explode'), state.exploded ? 'shrink' : 'expand', state.exploded ? '收合档案结构' : '展开档案结构'); action('explode').setAttribute('aria-pressed', String(state.exploded));
     action('back').querySelector('span')!.textContent = state.mode === 'inspect' ? '返回档案详情' : '返回档案阵列';
-    const ticks = root.querySelector('.file-ticks')!;
-    const tickHadFocus = ticks.contains(document.activeElement);
-    if (ticks.children.length !== state.groupLength) {
-      ticks.replaceChildren();
-      for (let index = 0; index < state.groupLength; index++) {
-        const button = document.createElement('button'); button.className = 'button is-ghost'; button.setAttribute('aria-label', `选择本组第 ${index + 1} 份档案`);
-        button.addEventListener('click', () => state.select(state.group * 8 + index)); ticks.append(button);
-      }
-    }
-    Array.from(ticks.children).forEach((button, index) => button.setAttribute('aria-pressed', String(index === state.selected % 8)));
-    if (tickHadFocus) (ticks.children[state.selected % 8] as HTMLButtonElement | undefined)?.focus();
     if (lastOverlay !== state.overlay) { closeDirectory(); lastOverlay = state.overlay; if (state.overlay) showDirectory(); }
     world?.update(state);
     if (changedMode) {
@@ -248,7 +266,10 @@ export function renderScene(entries: ArchiveEntry[], onRead: (entry: ArchiveEntr
     if (!intro.hidden) return;
     const target = event.target as HTMLElement;
     if (target?.matches?.('input,select,textarea,[contenteditable=true]')) return;
-    const keys: Record<string, () => void> = {ArrowUp: operations['previous-file'], ArrowDown: operations['next-file'], ArrowLeft: operations['previous-group'], ArrowRight: operations['next-group']};
+    const keys: Record<string, () => void> = {
+      ArrowLeft: operations['previous-file'], ArrowRight: operations['next-file'],
+      ArrowUp: () => state.stepCategory(1), ArrowDown: () => state.stepCategory(-1),
+    };
     if (state.mode === 'overview' && keys[event.key]) { event.preventDefault(); keys[event.key](); }
     if (event.key === '/') { event.preventDefault(); state.setOverlay('index'); }
     if (event.key === 'Enter' && state.mode === 'overview' && !target?.closest?.('button,a')) { event.preventDefault(); state.open(); }

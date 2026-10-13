@@ -9,6 +9,7 @@ class TrashError extends Error {
 const fail = (status, code, message) => { throw new TrashError(status, code, message); };
 const exists = async file => { try { await access(file); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
 const unique = values => [...new Set(values)];
+const TRASH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function createArchiveTrash({ documentsDir, outputDir, trashDir }) {
   const documents = path.resolve(documentsDir), output = path.resolve(outputDir);
@@ -124,6 +125,7 @@ export function createArchiveTrash({ documentsDir, outputDir, trashDir }) {
     return recycle(entries, 'category', category, manifest);
   }
   async function listTrash() {
+    await cleanupExpired();
     let names;
     try { names = await readdir(trash); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
     const batches = [];
@@ -138,8 +140,25 @@ export function createArchiveTrash({ documentsDir, outputDir, trashDir }) {
     }
     return batches.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
   }
+  async function cleanupExpired(now = Date.now()) {
+    let names;
+    try { names = await readdir(trash); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
+    for (const name of names) {
+      if (!/^[a-z0-9-]+$/iu.test(name)) continue;
+      const batch = path.join(trash, name);
+      const info = await lstat(batch);
+      if (!info.isDirectory() || info.isSymbolicLink()) continue;
+      let journal;
+      try { journal = JSON.parse(await readFile(journalPath(name), 'utf8')); }
+      catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      const deletedAt = Date.parse(journal.deletedAt);
+      if (journal.operationId !== name || journal.state !== 'deleted' || !Number.isFinite(deletedAt) || now - deletedAt < TRASH_RETENTION_MS) continue;
+      await rm(batch, { recursive: true, force: true });
+    }
+  }
   async function restoreTrash(operationId) {
     if (!/^[a-z0-9-]+$/iu.test(operationId ?? '')) fail(400, 'invalid_id', '回收批次 ID 无效。');
+    await cleanupExpired();
     let journal;
     try { journal = JSON.parse(await readFile(journalPath(operationId), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') fail(404, 'not_found', '回收批次不存在。'); throw error; }
@@ -235,5 +254,5 @@ export function createArchiveTrash({ documentsDir, outputDir, trashDir }) {
     if (changed) await buildArchive({ documentsDir: documents, outputDir: output });
     for (const name of names.filter(value => value.startsWith('.publish-'))) await rm(path.join(trash, name), { recursive: true, force: true });
   }
-  return { trashEntry, trashCategory, listTrash, restoreTrash, recoverPending };
+  return { trashEntry, trashCategory, listTrash, restoreTrash, recoverPending, cleanupExpired };
 }

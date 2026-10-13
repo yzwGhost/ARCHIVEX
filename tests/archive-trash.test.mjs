@@ -50,6 +50,60 @@ test('recycle a category as one batch', async t => {
   assert.deepEqual(new Set((await f.manifest()).entries.map(e => e.id)), new Set(initial.entries.map(e => e.id)));
 });
 
+test('expired recycled files are removed after seven days while newer files stay recoverable', async t => {
+  const f = await fixture(t);
+  for (const name of ['old.md', 'new.md']) await writeFile(path.join(f.documentsDir, name), name);
+  const initial = await f.build();
+  const old = await f.service.trashEntry(initial.entries.find(entry => entry.title === 'old').id);
+  const newer = await f.service.trashEntry(initial.entries.find(entry => entry.title === 'new').id);
+  const now = Date.now();
+  const week = 7 * 24 * 60 * 60 * 1000;
+  for (const [batch, deletedAt] of [
+    [old, new Date(now - week - 60_000).toISOString()],
+    [newer, new Date(now - week + 60_000).toISOString()],
+  ]) {
+    const journalFile = path.join(f.trashDir, batch.operationId, 'journal.json');
+    const journal = JSON.parse(await readFile(journalFile, 'utf8'));
+    journal.deletedAt = deletedAt;
+    await writeFile(journalFile, JSON.stringify(journal));
+  }
+  await f.service.cleanupExpired(now);
+  await assert.rejects(access(path.join(f.trashDir, old.operationId)));
+  assert.equal((await f.service.listTrash())[0].operationId, newer.operationId);
+  await assert.rejects(f.service.restoreTrash(old.operationId), error => error.status === 404);
+  assert.deepEqual(await f.service.restoreTrash(newer.operationId), { ids: newer.ids });
+});
+
+test('cleanup keeps an interrupted batch until recovery completes', async t => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.documentsDir, 'note.md'), 'note');
+  const { entries: [entry] } = await f.build();
+  const batch = await f.service.trashEntry(entry.id);
+  const journalFile = path.join(f.trashDir, batch.operationId, 'journal.json');
+  const journal = JSON.parse(await readFile(journalFile, 'utf8'));
+  journal.deletedAt = '2026-10-01T00:00:00.000Z';
+  journal.state = 'pending-delete';
+  await writeFile(journalFile, JSON.stringify(journal));
+  await f.service.cleanupExpired(Date.parse('2026-10-13T00:00:00.000Z'));
+  assert.equal(await readFile(journalFile, 'utf8') !== '', true);
+  await f.service.recoverPending();
+  await f.service.cleanupExpired(Date.parse('2026-10-13T00:00:00.000Z'));
+  await assert.rejects(access(path.join(f.trashDir, batch.operationId)));
+});
+
+test('an expired batch cannot be restored before the next scheduled cleanup', async t => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.documentsDir, 'note.md'), 'note');
+  const { entries: [entry] } = await f.build();
+  const batch = await f.service.trashEntry(entry.id);
+  const journalFile = path.join(f.trashDir, batch.operationId, 'journal.json');
+  const journal = JSON.parse(await readFile(journalFile, 'utf8'));
+  journal.deletedAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+  await writeFile(journalFile, JSON.stringify(journal));
+  await assert.rejects(f.service.restoreTrash(batch.operationId), error => error.status === 404);
+  await assert.rejects(access(path.join(f.trashDir, batch.operationId)));
+});
+
 test('keep shared metadata and reject changed metadata on restore', async t => {
   const f = await fixture(t);
   await writeFile(path.join(f.documentsDir, 'shared.md'), 'text');

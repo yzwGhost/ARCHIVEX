@@ -22,6 +22,13 @@ test('management confirmation starts on cancel and exposes exact entry title', a
   panel.remove();
 });
 
+test('trash dialog explains when recycled files are permanently removed', async () => {
+  const { renderArchiveManagement } = await import('../src/archive-management.ts');
+  const panel = renderArchiveManagement({ mode: 'trash', categories: [], batches: [], onClose: () => {},
+    onDeleteEntry: async () => {}, onDeleteCategory: async () => {}, onRestore: async () => {} });
+  assert.match(panel.textContent!, /7 天后自动永久删除/);
+});
+
 test('reader return and download controls use decorative SVG icons', async () => {
   const { renderReader } = await import('../src/reader.ts');
   const reader = renderReader({ ...entry, type: 'doc' }, () => {});

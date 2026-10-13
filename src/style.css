@@ -196,3 +196,34 @@
   [data-mode=overview] .archive-toolbar { top:16%; left:5%; right:5%; max-width:none; justify-content:flex-end; flex-wrap:wrap; }
   [data-mode=overview] .archive-toolbar button.open-trash { font-size:9px; padding:5px; }
 }
+
+/* Shared type scale for interface text; display titles and icon glyphs keep their own sizes. */
+:root {
+  --type-caption:11px;
+  --type-control:12px;
+  --type-body:14px;
+  --type-section:24px;
+}
+.eyebrow, .file-counter small, .group-navigation small, .record-meta dt,
+.search-label, .directory-count, .directory-result small, .directory-paper>footer,
+.current-category small, .save-status { font-size:var(--type-caption); }
+.archive-toolbar, .archive-toolbar button, .archive-toolbar .upload-trigger,
+.archive-toolbar .manage-categories, .archive-toolbar button.open-trash,
+.archive-back, .detail-actions, .detail-actions button, .detail-actions a,
+.access-file, .directory-filters button, .inspection-controls button,
+.archive-dropdown-trigger, .archive-dropdown-option,
+.upload-panel .archive-dropdown-trigger, .upload-panel .archive-dropdown-option,
+.reader-header a, .reader-close, .management-paper button { font-size:var(--type-control)!important; }
+.detail-rule, .overview-summary, .record-meta dd, .record-overview>p:last-child,
+.directory-result strong, .directory-empty, .archive-empty p,
+.archive-file, .management-content, .upload-status, .upload-results,
+.reader-message { font-size:var(--type-body); }
+.directory-paper h2, .upload-panel h2, .management-paper h2 { font-size:var(--type-section); }
+.management-retention { margin:0 0 12px; color:var(--muted); }
+.management-paper .button:not(.is-danger) { color:var(--archive-ink); background:var(--archive-wash); border:1px solid var(--archive-edge); }
+.management-paper .button:not(.is-danger):hover { background:#e4d3b9; }
+@media(max-width:700px) {
+  :root { --type-caption:11px; --type-control:11px; --type-body:13px; --type-section:24px; }
+  .archive-toolbar button, .archive-toolbar .manage-categories,
+  .archive-toolbar button.open-trash { padding:6px; }
+}

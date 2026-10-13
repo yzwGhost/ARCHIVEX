@@ -105,13 +105,17 @@ async function readJson(req) {
 
 export function createUploadMiddleware({ documentsDir, outputDir, trashDir }) {
   const trash = createArchiveTrash({ documentsDir, outputDir, trashDir });
-  const ready = trash.recoverPending();
+  const ready = trash.recoverPending().then(() => trash.cleanupExpired());
   let queue = Promise.resolve();
   const commit = task => {
     const result = queue.then(task, task);
     queue = result.catch(() => {});
     return result;
   };
+  const cleanupTimer = setInterval(() => {
+    void commit(async () => { await ready; await trash.cleanupExpired(); }).catch(error => console.error('回收区自动清理失败：', error));
+  }, 60 * 60 * 1000);
+  cleanupTimer.unref?.();
   return (req, res, next) => {
     const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
     const archiveId = /^\/api\/archives\/([^/]+)$/u.exec(pathname)?.[1];

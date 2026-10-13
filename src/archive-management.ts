@@ -79,7 +79,13 @@ export function renderArchiveManagement(options: ManagementOptions): HTMLElement
       footer.append(button('关闭', dismiss));
     } else {
       title.textContent = '回收区';
-      if (!options.batches.length) content.textContent = '回收区暂无档案。';
+      const retention = document.createElement('p');
+      retention.className = 'management-retention';
+      retention.textContent = '移入回收区的文件将在 7 天后自动永久删除。';
+      content.append(retention);
+      if (!options.batches.length) {
+        const empty = document.createElement('p'); empty.textContent = '回收区暂无档案。'; content.append(empty);
+      }
       options.batches.forEach(batch => {
         const row = document.createElement('div'); row.className = 'management-row';
         const text = document.createElement('span');

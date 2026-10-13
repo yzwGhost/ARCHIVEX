@@ -10,6 +10,18 @@ const dom = new JSDOM('<!doctype html><body></body>');
 globalThis.document = dom.window.document;
 const entry: ArchiveEntry = { id: 'a', relativePath: 'a.md', title: '<研究记录>', summary: '细胞实验摘要', date: '2026-10-10', category: '实验', type: 'md', sourceUrl: '/archive/a.md' };
 
+test('management confirmation starts on cancel and exposes exact entry title', async () => {
+  const { renderArchiveManagement } = await import('../src/archive-management.ts');
+  const panel = renderArchiveManagement({ mode: 'confirm-entry', entry, categories: [], batches: [], onClose: () => {},
+    onDeleteEntry: async () => {}, onDeleteCategory: async () => {}, onRestore: async () => {} });
+  document.body.append(panel);
+  await Promise.resolve();
+  assert.match(panel.textContent!, /<研究记录>/);
+  assert.match(panel.textContent!, /移入回收区/);
+  assert.equal(document.activeElement?.textContent, '取消');
+  panel.remove();
+});
+
 test('reader return and download controls use decorative SVG icons', async () => {
   const { renderReader } = await import('../src/reader.ts');
   const reader = renderReader({ ...entry, type: 'doc' }, () => {});
@@ -306,6 +318,23 @@ test('upload panel requires files and supports a new category', async t => {
   assert.equal(category, '新分类');
 });
 
+test('upload category dropdown selects an existing category and Escape closes only the menu', async () => {
+  const { renderUploadPanel } = await import('../src/upload.ts');
+  let closes = 0;
+  const panel = renderUploadPanel({ categories: ['实验', '报告'], onClose: () => { closes++; }, onComplete: () => {} });
+  document.body.replaceChildren(panel);
+  const trigger = panel.querySelector<HTMLButtonElement>('.upload-select .archive-dropdown-trigger')!;
+  assert.ok(trigger);
+  trigger.click();
+  trigger.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  assert.equal(closes, 0);
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  trigger.click();
+  panel.querySelectorAll<HTMLElement>('.upload-select [role=option]')[2].click();
+  assert.equal(panel.querySelector<HTMLSelectElement>('.upload-category')?.value, '报告');
+  assert.equal(trigger.textContent?.includes('报告'), true);
+});
+
 test('local capability controls whether archive shows upload entry', async t => {
   const { startArchive } = await import('../src/main.ts');
   dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
@@ -316,9 +345,89 @@ test('local capability controls whether archive shows upload entry', async t => 
   document.body.replaceChildren(app);
   await startArchive(app);
   assert.ok(app.querySelector('.upload-trigger'));
+  assert.ok(app.querySelector('.manage-categories'));
+  assert.ok(app.querySelector('.open-trash'));
   enabled = false;
   await startArchive(app);
   assert.equal(app.querySelector('.upload-trigger'), null);
+  assert.equal(app.querySelector('.manage-categories'), null);
+  assert.equal(app.querySelector('.open-trash'), null);
+});
+
+test('local delete waits for removal then reloads the manifest', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  let deleted = false, reads = 0;
+  t.mock.method(globalThis, 'fetch', async (url: string, options?: RequestInit) => {
+    if (url === '/api/upload-capabilities') return new Response(JSON.stringify({ enabled: true, maxFileBytes: 52428800 }));
+    if (url.startsWith('/api/archives/') && options?.method === 'DELETE') { deleted = true; return new Response(JSON.stringify({ operationId: 'batch', ids: [entry.id] })); }
+    if (url === '/archive/manifest.json') { reads++; return new Response(JSON.stringify({ entries: deleted ? [] : [entry], warnings: [] })); }
+    return new Response('missing', { status: 404 });
+  });
+  const app = document.createElement('main'); document.body.replaceChildren(app);
+  await startArchive(app);
+  assert.ok(app.querySelector('.manage-categories'));
+  assert.ok(app.querySelector('.open-trash'));
+  app.querySelector<HTMLButtonElement>('.archive-file')!.click();
+  app.querySelector<HTMLButtonElement>('[data-action=delete]')!.click();
+  document.querySelector<HTMLButtonElement>('.archive-management .is-danger')!.click();
+  await new Promise(resolve => setTimeout(resolve, 520));
+  assert.equal(reads, 2);
+  assert.match(app.textContent!, /将文件放入 documents\//);
+});
+
+test('failed deletion keeps the scene and shows the server error', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  let reads = 0;
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    if (url === '/archive/manifest.json') { reads++; return new Response(JSON.stringify({ entries: [entry], warnings: [] })); }
+    if (url === '/api/upload-capabilities') return new Response(JSON.stringify({ enabled: true, maxFileBytes: 52428800 }));
+    return new Response(JSON.stringify({ code: 'conflict', message: '原件已变化' }), { status: 409 });
+  });
+  const app = document.createElement('main'); document.body.replaceChildren(app);
+  await startArchive(app);
+  app.querySelector<HTMLButtonElement>('.archive-file')!.click();
+  app.querySelector<HTMLButtonElement>('[data-action=delete]')!.click();
+  document.querySelector<HTMLButtonElement>('.archive-management .is-danger')!.click();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(reads, 1);
+  assert.match(document.querySelector('.management-status')!.textContent!, /原件已变化/);
+  assert.equal(app.querySelectorAll('.archive-file').length, 1);
+  document.querySelector<HTMLButtonElement>('.management-paper footer button')!.click();
+  assert.equal(app.querySelector('.archive-scene')!.hasAttribute('inert'), false);
+});
+
+test('category removal selects its row before animating from all entries', async t => {
+  const { startArchive } = await import('../src/main.ts');
+  dom.reconfigure({ url: 'http://127.0.0.1:5173/' });
+  t.after(() => dom.reconfigure({ url: 'about:blank' }));
+  const other = { ...entry, id: 'b', relativePath: 'b.md', title: '报告', category: '报告' };
+  let deleted = false;
+  let confirmedIds: string[] | undefined;
+  t.mock.method(globalThis, 'fetch', async (url: string, options?: RequestInit) => {
+    if (url === '/archive/manifest.json') return new Response(JSON.stringify({ entries: deleted ? [other] : [other, entry], warnings: [] }));
+    if (url === '/api/upload-capabilities') return new Response(JSON.stringify({ enabled: true, maxFileBytes: 52428800 }));
+    if (url === '/api/categories') {
+      confirmedIds = JSON.parse(String(options?.body)).expectedIds;
+      deleted = true;
+      return new Response(JSON.stringify({ operationId: 'batch', ids: [entry.id] }));
+    }
+    return new Response('missing', { status: 404 });
+  });
+  const app = document.createElement('main'); document.body.replaceChildren(app);
+  await startArchive(app);
+  assert.equal((app.querySelector('.archive-scene') as any).state.entry.id, other.id);
+  app.querySelector<HTMLButtonElement>('.manage-categories')!.click();
+  const rows = [...document.querySelectorAll<HTMLElement>('.management-row')];
+  rows.find(row => row.textContent?.includes('实验'))!.querySelector<HTMLButtonElement>('button')!.click();
+  document.querySelector<HTMLButtonElement>('.archive-management .is-danger')!.click();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal((app.querySelector('.archive-scene') as any).state.entry.id, entry.id);
+  assert.deepEqual(confirmedIds, [entry.id]);
+  await new Promise(resolve => setTimeout(resolve, 520));
 });
 
 test('upload completion refreshes archive once and keeps its category', async t => {

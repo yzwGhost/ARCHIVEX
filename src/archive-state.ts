@@ -1,12 +1,29 @@
 import type { ArchiveEntry } from './types.ts';
 import { entryCategory } from './categories.ts';
+import { layoutFiles } from './layout.ts';
 
-export const GROUP_SIZE = 8;
 export const SAVED_KEY = 'rhine-archive:saved:v1';
 export type ArchiveMode = 'overview' | 'detail' | 'inspect';
 export type DirectoryMode = 'index' | 'saved' | null;
 export type ArchiveStorage = Pick<Storage, 'getItem' | 'setItem'>;
 export const fileCode = (index: number) => `X-${String(index + 1).padStart(3, '0')}`;
+
+export function replacementAfterRemoval(entries: ArchiveEntry[], removedIds: readonly string[], selectedId: string): string {
+  const selected = entries.findIndex(entry => entry.id === selectedId);
+  const removed = new Set(removedIds);
+  const survivors = entries.flatMap((entry, index) => removed.has(entry.id) ? [] : [index]);
+  if (!survivors.length) return '';
+  if (selected < 0 || !removed.has(selectedId)) return survivors.find(index => entries[index].id === selectedId) === undefined ? entries[survivors[0]].id : selectedId;
+  const positions = layoutFiles(entries).files;
+  const from = positions[selected];
+  survivors.sort((a, b) => {
+    const pa = positions[a], pb = positions[b];
+    return Number(pa.z !== from.z) - Number(pb.z !== from.z)
+      || Math.abs(pa.z - from.z) - Math.abs(pb.z - from.z)
+      || Math.abs(pa.x - from.x) - Math.abs(pb.x - from.x);
+  });
+  return entries[survivors[0]].id;
+}
 
 export function searchEntries(entries: ArchiveEntry[], query = '', category = ''): ArchiveEntry[] {
   const normalized = query.trim().toLocaleLowerCase();
@@ -27,9 +44,11 @@ export class ArchiveState {
   private storage?: ArchiveStorage;
   private listeners = new Set<() => void>();
   private clickedSelection: number | null = null;
+  private positions: ReturnType<typeof layoutFiles>['files'];
 
   constructor(entries: ArchiveEntry[], storage?: ArchiveStorage, options?: { allEntries?: ArchiveEntry[]; selectedId?: string }) {
     this.entries = entries;
+    this.positions = layoutFiles(entries).files;
     this.allEntries = options?.allEntries ?? entries;
     const selected = entries.findIndex(entry => entry.id === options?.selectedId);
     if (selected >= 0) this.selected = selected;
@@ -44,9 +63,6 @@ export class ArchiveState {
   }
   get entry() { return this.entries[this.selected]; }
   codeFor(entry: ArchiveEntry) { return fileCode(this.allEntries.findIndex(item => item.id === entry.id)); }
-  get group() { return Math.floor(this.selected / GROUP_SIZE); }
-  get groupCount() { return Math.ceil(this.entries.length / GROUP_SIZE); }
-  get groupLength() { return Math.min(GROUP_SIZE, this.entries.length - this.group * GROUP_SIZE); }
   subscribe(listener: () => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   notify() { this.listeners.forEach(listener => listener()); }
   select(index: number) {
@@ -64,13 +80,21 @@ export class ArchiveState {
     }
   }
   stepFile(delta: number) {
-    if (!this.entries.length || this.mode !== 'overview') return;
-    this.select(this.group * GROUP_SIZE + ((this.selected % GROUP_SIZE + delta) % this.groupLength + this.groupLength) % this.groupLength);
+    if (!this.entries.length || this.mode !== 'overview' || this.overlay || this.reading) return;
+    const row = this.positions[this.selected].z;
+    const peers = this.positions.flatMap((position, index) => position.z === row ? [index] : []);
+    const target = Math.max(0, Math.min(peers.indexOf(this.selected) + delta, peers.length - 1));
+    this.select(peers[target]);
   }
-  stepGroup(delta: number) {
-    if (!this.entries.length || this.mode !== 'overview') return;
-    const group = ((this.group + delta) % this.groupCount + this.groupCount) % this.groupCount;
-    this.select(group * GROUP_SIZE + Math.min(this.selected % GROUP_SIZE, this.entries.length - group * GROUP_SIZE - 1));
+  stepCategory(delta: number) {
+    if (!this.entries.length || this.mode !== 'overview' || this.overlay || this.reading) return;
+    const current = this.positions[this.selected];
+    const rows = [...new Set(this.positions.map(position => position.z))].sort((a, b) => b - a);
+    const row = Math.max(0, Math.min(rows.indexOf(current.z) + delta, rows.length - 1));
+    if (rows[row] === current.z) return;
+    const peers = this.positions.flatMap((position, index) => position.z === rows[row] ? [index] : []);
+    const nearest = peers.reduce((best, index) => Math.abs(this.positions[index].x - current.x) < Math.abs(this.positions[best].x - current.x) ? index : best);
+    this.select(nearest);
   }
   open(index = this.selected) {
     if (!this.entries[index] || this.reading) return;

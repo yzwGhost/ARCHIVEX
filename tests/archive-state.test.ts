@@ -1,10 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ArchiveState, searchEntries } from '../src/archive-state.ts';
+import { ArchiveState, searchEntries, replacementAfterRemoval } from '../src/archive-state.ts';
 import { MotionValue } from '../src/scene/ArchiveMotion.ts';
 import type { ArchiveEntry } from '../src/types.ts';
 
 const entries: ArchiveEntry[] = Array.from({ length: 37 }, (_, i) => ({ id: `id-${i}`, relativePath: `${i}.md`, title: i === 12 ? '研究记录' : `文件 ${i}`, summary: '细胞实验', date: '2026-10-11', category: i < 8 ? '研究' : '未分类', type: 'md', sourceUrl: `/${i}.md` }));
+
+test('replacement after removal prefers the same category row', () => {
+  const sample = [entries[0], entries[1], entries[8]];
+  assert.equal(replacementAfterRemoval(sample, ['id-0'], 'id-0'), 'id-1');
+  assert.equal(replacementAfterRemoval(sample, ['id-0', 'id-1'], 'id-0'), 'id-8');
+});
 test('canvas clicks select first and open only on a second click on the same file', () => {
   const state = new ArchiveState(entries);
   state.activate(0); assert.equal(state.mode, 'overview');
@@ -27,17 +33,34 @@ test('canvas activation ignores blocked or invalid input and resets after naviga
   assert.equal(state.selected, 2); assert.equal(state.mode, 'overview');
   const empty = new ArchiveState([]); empty.activate(0); assert.equal(empty.mode, 'overview');
 });
-test('group navigation clamps the partial last group and wraps without phantom entries', () => {
-  const state = new ArchiveState(entries);
-  state.select(7); state.stepGroup(-1);
-  assert.equal(state.selected, 36);
-  state.stepFile(1); assert.equal(state.selected, 32);
-  state.stepGroup(1); assert.equal(state.selected, 0);
-  state.select(999); assert.equal(state.selected, 0);
+test('left and right navigation stays within the selected category row', () => {
+  const data = [entries[0], entries[8], entries[1], entries[9], entries[2]];
+  const state = new ArchiveState(data);
+  state.stepFile(1); assert.equal(state.selected, 2);
+  state.stepFile(1); assert.equal(state.selected, 4);
+  state.stepFile(1); assert.equal(state.selected, 4);
+  state.stepFile(-1); assert.equal(state.selected, 2);
+  state.select(999); assert.equal(state.selected, 2);
+});
+test('up and down navigation switches real categories and keeps the nearest horizontal position', () => {
+  const data = [entries[0], entries[8], entries[1], { ...entries[9], category: '报告' }, entries[2], { ...entries[10], category: '报告' }];
+  const state = new ArchiveState(data);
+  state.select(4); state.stepCategory(1); assert.equal(state.selected, 1);
+  state.stepCategory(1); assert.equal(state.selected, 5);
+  state.stepCategory(1); assert.equal(state.selected, 5);
+  state.stepCategory(-1); assert.equal(state.selected, 1);
+  state.stepCategory(-1); assert.equal(state.selected, 2);
+  state.stepCategory(-1); assert.equal(state.selected, 2);
+});
+test('file and category navigation do not change selection behind the directory', () => {
+  const state = new ArchiveState([entries[0], entries[8], entries[1]]);
+  state.setOverlay('index');
+  state.stepFile(1); state.stepCategory(1);
+  assert.equal(state.selected, 0);
 });
 test('zero and single entry archives have safe navigation', () => {
   for (const data of [[], entries.slice(0, 1)]) {
-    const state = new ArchiveState(data); state.stepFile(-1); state.stepGroup(1); state.open();
+    const state = new ArchiveState(data); state.stepFile(-1); state.stepFile(1); state.stepCategory(-1); state.stepCategory(1); state.open();
     assert.equal(state.selected, 0); assert.equal(state.mode, data.length ? 'detail' : 'overview');
   }
 });

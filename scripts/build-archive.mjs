@@ -53,7 +53,7 @@ async function scan(directory, prefix = '') {
 
 const sortEntries = entries => entries.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0) || (a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0));
 
-async function buildEntry(input, output, relativePath) {
+export async function buildEntry(input, output, relativePath) {
   const warnings = [];
   const source = path.join(input, relativePath);
   const type = path.extname(relativePath).slice(1).toLowerCase();
@@ -100,6 +100,63 @@ async function buildEntry(input, output, relativePath) {
     if (error.code !== 'ENOENT') warnings.push(`${relativePath}: invalid metadata: ${error.message}`);
   }
   return { entry, warnings };
+}
+
+/** Publish a batch after source files have been moved. The manifest is replaced last. */
+export async function publishArchiveMutation({ documentsDir, outputDir, removeIds = [], addRelativePaths = [], stagingDir }) {
+  const input = path.resolve(documentsDir), output = path.resolve(outputDir);
+  await rejectLinkedAncestors(output);
+  const manifestPath = path.join(output, 'manifest.json');
+  const original = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const outputAsset = async relative => {
+    const target = path.resolve(output, relative);
+    if (!target.startsWith(output + path.sep)) throw new Error('Invalid generated archive path.');
+    await rejectLinkedAncestors(target);
+    return target;
+  };
+  const removed = original.entries.filter(entry => removeIds.includes(entry.id));
+  if (removed.length !== removeIds.length) throw new Error('Archive manifest changed.');
+  const stagingRoot = path.resolve(stagingDir ?? path.dirname(output));
+  await rejectLinkedAncestors(stagingRoot);
+  await mkdir(stagingRoot, { recursive: true });
+  const stage = await mkdtemp(path.join(stagingRoot, '.publish-'));
+  const stagedRemoved = [], published = [];
+  let manifestTemp, committed = false;
+  try {
+    const added = [];
+    const warnings = [];
+    for (const relativePath of addRelativePaths) {
+      const { entry, warnings: entryWarnings } = await buildEntry(input, stage, relativePath);
+      if (entry.error) throw new Error(entry.error);
+      added.push(entry); warnings.push(...entryWarnings);
+    }
+    const assets = entry => [path.join('files', entry.relativePath), ...(entry.previewUrl && entry.type !== 'pdf' ? [path.join('previews', `${entry.id}.html`)] : [])];
+    for (const entry of removed) for (const relative of assets(entry)) {
+      const source = await outputAsset(relative), backup = path.join(stage, 'backup', relative);
+      await mkdir(path.dirname(backup), { recursive: true });
+      try { await rename(source, backup); stagedRemoved.push([source, backup]); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    for (const entry of added) for (const relative of assets(entry)) {
+      const destination = await outputAsset(relative);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await copyFile(path.join(stage, relative), destination, constants.COPYFILE_EXCL);
+      published.push(destination);
+    }
+    const manifest = { entries: sortEntries([...original.entries.filter(entry => !removeIds.includes(entry.id)), ...added]), warnings: [...original.warnings, ...warnings] };
+    manifestTemp = path.join(output, `.manifest-${createHash('sha256').update(String(Math.random())).digest('hex')}.tmp`);
+    await writeFile(manifestTemp, JSON.stringify(manifest, null, 2), { flag: 'wx' });
+    await rename(manifestTemp, manifestPath);
+    committed = true;
+    return manifest;
+  } catch (error) {
+    if (!committed) {
+      await Promise.all(published.map(file => rm(file, { force: true })));
+      for (const [destination, backup] of stagedRemoved.reverse()) { await mkdir(path.dirname(destination), { recursive: true }); await rename(backup, destination); }
+      if (manifestTemp) await rm(manifestTemp, { force: true });
+    }
+    throw error;
+  } finally { await rm(stage, { recursive: true, force: true }); }
 }
 
 /** Build the archive in a dedicated output directory. Never pass an existing user-content directory. */

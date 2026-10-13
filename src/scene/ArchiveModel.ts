@@ -12,12 +12,12 @@ export function createModelAssets() {
     pages: new THREE.BoxGeometry(3.60, 2.60, .11),
     strip: new THREE.BoxGeometry(.055, 2.62, .055),
     fastener: new THREE.CylinderGeometry(.026, .026, .02, 8),
-    ivory: new THREE.MeshStandardMaterial({ color: '#eee8dc', roughness: .64, envMapIntensity: .45 }),
-    paper: new THREE.MeshStandardMaterial({ color: '#e0d9cb', roughness: .96, envMapIntensity: .25 }),
-    gold: new THREE.MeshStandardMaterial({ color: '#d8c590', roughness: .65, metalness: .22 }),
-    metal: new THREE.MeshStandardMaterial({ color: '#a6aaa4', roughness: .52, metalness: .48 }),
-    glass: new THREE.MeshPhysicalMaterial({ color: '#fffaf0', transparent: true, opacity: .15, roughness: .30, metalness: 0, clearcoat: .35, clearcoatRoughness: .36, envMapIntensity: .8, depthWrite: false, side: THREE.DoubleSide }),
-    ring: new THREE.MeshStandardMaterial({ color: '#e0d5c1', roughness: .62, metalness: .06, envMapIntensity: .55 }),
+    ivory: new THREE.MeshStandardMaterial({ color: '#f0e3cd', roughness: .64, envMapIntensity: .45 }),
+    paper: new THREE.MeshStandardMaterial({ color: '#e2d1b5', roughness: .96, envMapIntensity: .25 }),
+    gold: new THREE.MeshStandardMaterial({ color: '#c89f65', roughness: .65, metalness: .22 }),
+    metal: new THREE.MeshStandardMaterial({ color: '#a99a87', roughness: .52, metalness: .48 }),
+    glass: new THREE.MeshPhysicalMaterial({ color: '#fff3df', transparent: true, opacity: .15, roughness: .30, metalness: 0, clearcoat: .35, clearcoatRoughness: .36, envMapIntensity: .8, depthWrite: false, side: THREE.DoubleSide }),
+    ring: new THREE.MeshStandardMaterial({ color: '#d9bc91', roughness: .62, metalness: .06, envMapIntensity: .55 }),
   };
 }
 type Assets = ReturnType<typeof createModelAssets>;
@@ -67,14 +67,14 @@ export class ArchiveModel {
     const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 768;
     const context = canvas.getContext('2d')!;
     context.clearRect(0, 0, 1024, 768);
-    context.fillStyle = '#242823';
+    context.fillStyle = '#302b24';
     context.font = 'bold 23px Arial'; context.fillText('RHINE LAB, LLC.', 95, 62);
     context.font = '11px Arial'; context.fillText('INFORMATION  /  ARCHIVE SYSTEM', 95, 87);
     context.font = 'bold 32px Arial'; context.fillText(`NO.${code.slice(2)}`, 95, 133);
     context.font = 'bold 38px Arial'; context.fillText('∞', 308, 128);
     context.font = '12px Arial'; context.fillText(code, 80, 675);
     context.font = '14px "Microsoft YaHei", sans-serif'; context.fillText(entry.title.slice(0, 42), 80, 704);
-    context.fillStyle = '#66685f'; context.fillRect(808, 682, 90, 3);
+    context.fillStyle = '#8b7359'; context.fillRect(808, 682, 90, 3);
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
     const label = add(new THREE.PlaneGeometry(3.58, 2.60), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide }), .23, 1.25, this.detail);
     label.renderOrder = 3;

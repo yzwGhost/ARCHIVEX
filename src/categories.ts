@@ -1,6 +1,6 @@
 import type { ArchiveEntry } from './types.ts';
 
-export function entryCategory(entry: ArchiveEntry): string {
+export function entryCategory(entry: Pick<ArchiveEntry, 'category'>): string {
   return entry.category.trim() || '未分类';
 }
 

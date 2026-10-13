@@ -25,3 +25,11 @@ export interface UploadResult {
   entry: ArchiveEntry;
   warnings: string[];
 }
+
+export interface ArchiveTrashBatch {
+  operationId: string;
+  kind: 'entry' | 'category';
+  label: string;
+  deletedAt: string;
+  entries: Pick<ArchiveEntry, 'id' | 'relativePath' | 'title' | 'category'>[];
+}

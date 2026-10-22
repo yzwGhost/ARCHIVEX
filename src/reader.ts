@@ -87,7 +87,8 @@ export function renderReader(entry: ArchiveEntry, onClose: () => void): HTMLElem
         if (!content) return;
         const style = content.createElement('style');
         style.textContent = `
-          :root{font:15px/1.85 Arial,"Microsoft YaHei",sans-serif;color:#262c23;background:#faf8f2}
+          :root{font:15px/1.85 Arial,"Microsoft YaHei",sans-serif;color:#262c23;background:#faf8f2;scrollbar-color:#cdbb9f #faf8f2;scrollbar-width:thin}
+          ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#cdbb9f;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#916a3e}::-webkit-scrollbar-track{background:#faf8f2}
           *{box-sizing:border-box}body{max-width:980px;margin:0 auto;padding:42px 45px 90px;overflow-wrap:anywhere}
           h1,h2,h3,h4{line-height:1.5;font-weight:600;margin:1.8em 0 .75em}h1{font-size:28px;margin-top:0}h2{font-size:22px;border-bottom:1px solid #d7d8cc;padding-bottom:12px}h3{font-size:18px}
           p,ul,ol{margin:1em 0}table{border-collapse:collapse;width:100%;margin:24px 0;font-size:13px}th,td{border:1px solid #d8dacd;text-align:left;padding:10px 13px;vertical-align:top}th{background:#eeeee5}

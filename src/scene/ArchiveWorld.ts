@@ -248,7 +248,7 @@ export class ArchiveWorld {
       if (this.introActive) offset.add(new THREE.Vector3(0, 7 * (1 - intro), 4 * (1 - intro)));
       const cameraPosition = target.clone().add(offset);
       this.camera.position.lerp(cameraPosition, blend); this.cameraTarget.lerp(target, blend);
-      const overviewSize = this.models.length < 8 ? 7 : (narrow ? 15 : 9.5);
+      const overviewSize = 7;
       const desiredSize = THREE.MathUtils.lerp(overviewSize, this.mode === 'inspect' ? (narrow ? 8.7 : 6.4) : (narrow ? 10.5 : 6.6), detail);
       this.cameraSize = THREE.MathUtils.lerp(this.cameraSize, desiredSize, blend);
       this.camera.zoom = THREE.MathUtils.lerp(this.camera.zoom, 1, blend);

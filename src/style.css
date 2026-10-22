@@ -89,6 +89,11 @@
   --archive-edge:#cdbb9f;
   --archive-wash:#ede2d0;
 }
+* { scrollbar-color:var(--archive-edge) transparent; scrollbar-width:thin; }
+*::-webkit-scrollbar { width:8px; height:8px; }
+*::-webkit-scrollbar-thumb { background:var(--archive-edge); border-radius:8px; }
+*::-webkit-scrollbar-thumb:hover { background:var(--archive-brass); }
+*::-webkit-scrollbar-track { background:transparent; }
 .archive-toolbar { z-index:5; }
 .archive-dropdown { position:relative; display:inline-flex; max-width:100%; vertical-align:middle; pointer-events:auto; }
 .archive-select { width:126px; }
@@ -227,3 +232,4 @@
   .archive-toolbar button, .archive-toolbar .manage-categories,
   .archive-toolbar button.open-trash { padding:6px; }
 }
+.record-overview > p:last-child { max-height:none; overflow:visible; }
